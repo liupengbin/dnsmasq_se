@@ -245,9 +245,6 @@ static int iface_allowed(struct iface_param *param, int if_index, char *label,
   int dhcp_ok = 1;
   int auth_dns = 0;
   int is_label = 0;
-#if defined(HAVE_DHCP)
-  struct iname *tmp;
-#endif
 
   (void)prefixlen;
 
@@ -443,23 +440,7 @@ static int iface_allowed(struct iface_param *param, int if_index, char *label,
       !iface_check(AF_INET6, (struct all_addr *)&addr->in6.sin6_addr, label, &auth_dns))
     return 1;
 #endif
-    
-#ifdef HAVE_DHCP
-  /* No DHCP where we're doing auth DNS. */
-  if (auth_dns)
-    {
-      tftp_ok = 0;
-      dhcp_ok = 0;
-    }
-  else
-    for (tmp = daemon->dhcp_except; tmp; tmp = tmp->next)
-      if (tmp->name && wildcard_match(tmp->name, ifr.ifr_name))
-	{
-	  tftp_ok = 0;
-	  dhcp_ok = 0;
-	}
-#endif
-   
+       
   /* add to list */
   if ((iface = whine_malloc(sizeof(struct irec))))
     {
@@ -1032,67 +1013,6 @@ int is_dad_listeners(void)
   
   return 0;
 }
-
-#ifdef HAVE_DHCP6
-void join_multicast(int dienow)      
-{
-  struct irec *iface, *tmp;
-
-  for (iface = daemon->interfaces; iface; iface = iface->next)
-    if (iface->addr.sa.sa_family == AF_INET6 && iface->dhcp_ok && !iface->multicast_done)
-      {
-	/* There's an irec per address but we only want to join for multicast 
-	   once per interface. Weed out duplicates. */
-	for (tmp = daemon->interfaces; tmp; tmp = tmp->next)
-	  if (tmp->multicast_done && tmp->index == iface->index)
-	    break;
-	
-	iface->multicast_done = 1;
-	
-	if (!tmp)
-	  {
-	    struct ipv6_mreq mreq;
-	    int err = 0;
-
-	    mreq.ipv6mr_interface = iface->index;
-	    
-	    inet_pton(AF_INET6, ALL_RELAY_AGENTS_AND_SERVERS, &mreq.ipv6mr_multiaddr);
-	    
-	    if ((daemon->doing_dhcp6 || daemon->relay6) &&
-		setsockopt(daemon->dhcp6fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq, sizeof(mreq)) == -1)
-	      err = errno;
-	    
-	    inet_pton(AF_INET6, ALL_SERVERS, &mreq.ipv6mr_multiaddr);
-	    
-	    if (daemon->doing_dhcp6 && 
-		setsockopt(daemon->dhcp6fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq, sizeof(mreq)) == -1)
-	      err = errno;
-	    
-	    inet_pton(AF_INET6, ALL_ROUTERS, &mreq.ipv6mr_multiaddr);
-	    
-	    if (daemon->doing_ra &&
-		setsockopt(daemon->icmp6fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq, sizeof(mreq)) == -1)
-	      err = errno;
-	    
-	    if (err)
-	      {
-		char *s = _("interface %s failed to join DHCPv6 multicast group: %s");
-		errno = err;
-
-#ifdef HAVE_LINUX_NETWORK
-		if (errno == ENOMEM)
-		  my_syslog(LOG_ERR, _("try increasing /proc/sys/net/core/optmem_max"));
-#endif
-
-		if (dienow)
-		  die(s, iface->name, EC_BADNET);
-		else
-		  my_syslog(LOG_ERR, s, iface->name, strerror(errno));
-	      }
-	  }
-      }
-}
-#endif
 
 /* return a UDP socket bound to a random port, have to cope with straying into
    occupied port nos and reserved ones. */
@@ -1678,16 +1598,6 @@ void newaddress(time_t now)
   if (option_bool(OPT_CLEVERBIND))
     create_bound_listeners(0);
   
-#ifdef HAVE_DHCP6
-  if (daemon->doing_dhcp6 || daemon->relay6 || daemon->doing_ra)
-    join_multicast(0);
-  
-  if (daemon->doing_dhcp6 || daemon->doing_ra)
-    dhcp_construct_contexts(now);
-  
-  if (daemon->doing_dhcp6)
-    lease_find_interfaces(now);
-#endif
 }
 
 

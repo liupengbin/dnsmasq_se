@@ -55,10 +55,6 @@ int main (int argc, char **argv)
   char *bound_device = NULL;
   int did_bind = 0;
 #endif 
-#if defined(HAVE_DHCP) || defined(HAVE_DHCP6)
-  struct dhcp_context *context;
-  struct dhcp_relay *relay;
-#endif
 
 #ifdef LOCALEDIR
   setlocale(LC_ALL, "");
@@ -122,14 +118,6 @@ int main (int argc, char **argv)
       /* one char flag per possible RR in answer section (may get extended). */
       daemon->rr_status_sz = 64;
       daemon->rr_status = safe_malloc(daemon->rr_status_sz);
-    }
-#endif
-
-#ifdef HAVE_DHCP
-  if (!daemon->lease_file)
-    {
-      if (daemon->dhcp || daemon->dhcp6)
-	daemon->lease_file = LEASEFILE;
     }
 #endif
   
@@ -240,53 +228,6 @@ int main (int argc, char **argv)
 
     }
   
-#ifdef HAVE_DHCP6
-  if (daemon->dhcp6)
-    {
-      daemon->doing_ra = option_bool(OPT_RA);
-      
-      for (context = daemon->dhcp6; context; context = context->next)
-	{
-	  if (context->flags & CONTEXT_DHCP)
-	    daemon->doing_dhcp6 = 1;
-	  if (context->flags & CONTEXT_RA)
-	    daemon->doing_ra = 1;
-#if !defined(HAVE_LINUX_NETWORK) && !defined(HAVE_BSD_NETWORK)
-	  if (context->flags & CONTEXT_TEMPLATE)
-	    die (_("dhcp-range constructor not available on this platform"), NULL, EC_BADCONF);
-#endif 
-	}
-    }
-#endif
-  
-#ifdef HAVE_DHCP
-  /* Note that order matters here, we must call lease_init before
-     creating any file descriptors which shouldn't be leaked
-     to the lease-script init process. We need to call common_init
-     before lease_init to allocate buffers it uses.
-     The script subsystem relies on DHCP buffers, hence the last two
-     conditions below. */  
-  if (daemon->dhcp || daemon->doing_dhcp6 || daemon->relay4 || 
-      daemon->relay6 || option_bool(OPT_TFTP) || option_bool(OPT_SCRIPT_ARP))
-    {
-      dhcp_common_init();
-      if (daemon->dhcp || daemon->doing_dhcp6)
-	lease_init(now);
-    }
-  
-  if (daemon->dhcp || daemon->relay4)
-    dhcp_init();
-  
-#  ifdef HAVE_DHCP6
-  if (daemon->doing_ra || daemon->doing_dhcp6 || daemon->relay6)
-    ra_init(now);
-  
-  if (daemon->doing_dhcp6 || daemon->relay6)
-    dhcp6_init();
-#  endif
-
-#endif
-
 #ifdef HAVE_IPSET
   if (daemon->ipsets)
     ipset_init();
@@ -313,45 +254,10 @@ int main (int argc, char **argv)
 	  if (if_tmp->name && !if_tmp->used)
 	    die(_("unknown interface %s"), if_tmp->name, EC_BADNET);
 
-#if defined(HAVE_LINUX_NETWORK) && defined(HAVE_DHCP)
-      /* after enumerate_interfaces()  */
-      bound_device = whichdevice();
-      
-      if (daemon->dhcp)
-	{
-	  if (!daemon->relay4 && bound_device)
-	    {
-	      bindtodevice(bound_device, daemon->dhcpfd);
-	      did_bind = 1;
-	    }
-	  if (daemon->enable_pxe && bound_device)
-	    {
-	      bindtodevice(bound_device, daemon->pxefd);
-	      did_bind = 1;
-	    }
-	}
-#endif
-
-#if defined(HAVE_LINUX_NETWORK) && defined(HAVE_DHCP6)
-      if (daemon->doing_dhcp6 && !daemon->relay6 && bound_device)
-	{
-	  bindtodevice(bound_device, daemon->dhcp6fd);
-	  did_bind = 1;
-	}
-#endif
     }
   else 
     create_wildcard_listeners();
- 
-#ifdef HAVE_DHCP6
-  /* after enumerate_interfaces() */
-  if (daemon->doing_dhcp6 || daemon->relay6 || daemon->doing_ra)
-    join_multicast(1);
-
-  /* After netlink_init() and before create_helper() */
-  lease_make_duid(now);
-#endif
-  
+   
   if (daemon->port != 0)
     {
       cache_init();
@@ -794,38 +700,6 @@ int main (int argc, char **argv)
   if (daemon->max_logs != 0)
     my_syslog(LOG_INFO, _("asynchronous logging enabled, queue limit is %d messages"), daemon->max_logs);
   
-
-#ifdef HAVE_DHCP
-  for (context = daemon->dhcp; context; context = context->next)
-    log_context(AF_INET, context);
-
-  for (relay = daemon->relay4; relay; relay = relay->next)
-    log_relay(AF_INET, relay);
-
-#  ifdef HAVE_DHCP6
-  for (context = daemon->dhcp6; context; context = context->next)
-    log_context(AF_INET6, context);
-
-  for (relay = daemon->relay6; relay; relay = relay->next)
-    log_relay(AF_INET6, relay);
-  
-  if (daemon->doing_dhcp6 || daemon->doing_ra)
-    dhcp_construct_contexts(now);
-  
-  if (option_bool(OPT_RA))
-    my_syslog(MS_DHCP | LOG_INFO, _("IPv6 router advertisement enabled"));
-#  endif
-
-#  ifdef HAVE_LINUX_NETWORK
-  if (did_bind)
-    my_syslog(MS_DHCP | LOG_INFO, _("DHCP, sockets bound exclusively to interface %s"), bound_device);
-#  endif
-
-  /* after dhcp_construct_contexts */
-  if (daemon->dhcp || daemon->doing_dhcp6)
-    lease_find_interfaces(now);
-#endif
-
   /* finished start-up - release original process */
   if (err_pipe[1] != -1)
     while (retry_send(close(err_pipe[1])));
@@ -869,24 +743,7 @@ int main (int argc, char **argv)
       if (option_bool(OPT_UBUS))
 	  set_ubus_listeners();
 #endif
-	  
-#ifdef HAVE_DHCP
-      if (daemon->dhcp || daemon->relay4)
-	{
-	  poll_listen(daemon->dhcpfd, POLLIN);
-	  if (daemon->pxefd != -1)
-	    poll_listen(daemon->pxefd, POLLIN);
-	}
-#endif
-
-#ifdef HAVE_DHCP6
-      if (daemon->doing_dhcp6 || daemon->relay6)
-	poll_listen(daemon->dhcp6fd, POLLIN);
-	
-      if (daemon->doing_ra)
-	poll_listen(daemon->icmp6fd, POLLIN); 
-#endif
-    
+	      
 #ifdef HAVE_INOTIFY
       if (daemon->inotifyfd != -1)
 	poll_listen(daemon->inotifyfd, POLLIN);
@@ -901,9 +758,6 @@ int main (int argc, char **argv)
       poll_listen(piperead, POLLIN);
 
 #ifdef HAVE_SCRIPT
-#    ifdef HAVE_DHCP
-      while (helper_buf_empty() && do_script_run(now)); 
-#    endif
 
       /* Refresh cache */
       if (option_bool(OPT_SCRIPT_ARP))
@@ -914,9 +768,6 @@ int main (int argc, char **argv)
 	poll_listen(daemon->helperfd, POLLOUT);
 #else
       /* need this for other side-effects */
-#    ifdef HAVE_DHCP
-      while (do_script_run(now));
-#    endif
 
       while (do_arp_script_run());
 
@@ -998,29 +849,6 @@ int main (int argc, char **argv)
 #endif
 
       check_dns_listeners(now);
-
-#ifdef HAVE_DHCP
-      if (daemon->dhcp || daemon->relay4)
-	{
-	  if (poll_check(daemon->dhcpfd, POLLIN))
-	    dhcp_packet(now, 0);
-	  if (daemon->pxefd != -1 && poll_check(daemon->pxefd, POLLIN))
-	    dhcp_packet(now, 1);
-	}
-
-#ifdef HAVE_DHCP6
-      if ((daemon->doing_dhcp6 || daemon->relay6) && poll_check(daemon->dhcp6fd, POLLIN))
-	dhcp6_packet(now);
-
-      if (daemon->doing_ra && poll_check(daemon->icmp6fd, POLLIN))
-	icmp6_packet(now);
-#endif
-
-#  ifdef HAVE_SCRIPT
-      if (daemon->helperfd != -1 && poll_check(daemon->helperfd, POLLOUT))
-	helper_write();
-#  endif
-#endif
 
     }
 }
@@ -1226,9 +1054,6 @@ static void async_event(int pipe, time_t now)
 	      check_servers();
 	  }
 
-#ifdef HAVE_DHCP
-	rerun_scripts();
-#endif
 	break;
 	
       case EVENT_DUMP:
@@ -1237,18 +1062,6 @@ static void async_event(int pipe, time_t now)
 	break;
 	
       case EVENT_ALARM:
-#ifdef HAVE_DHCP
-	if (daemon->dhcp || daemon->doing_dhcp6)
-	  {
-	    lease_prune(NULL, now);
-	    lease_update_file(now);
-	  }
-#ifdef HAVE_DHCP6
-	else if (daemon->doing_ra)
-	  /* Not doing DHCP, so no lease system, manage alarms for ra only */
-	    send_alarm(periodic_ra(now), now);
-#endif
-#endif
 	break;
 		
       case EVENT_CHILD:
@@ -1327,21 +1140,7 @@ static void async_event(int pipe, time_t now)
 	for (i = 0; i < MAX_PROCS; i++)
 	  if (daemon->tcp_pids[i] != 0)
 	    kill(daemon->tcp_pids[i], SIGALRM);
-	
-#if defined(HAVE_SCRIPT) && defined(HAVE_DHCP)
-	/* handle pending lease transitions */
-	if (daemon->helperfd != -1)
-	  {
-	    /* block in writes until all done */
-	    if ((i = fcntl(daemon->helperfd, F_GETFL)) != -1)
-	      fcntl(daemon->helperfd, F_SETFL, i & ~O_NONBLOCK); 
-	    do {
-	      helper_write();
-	    } while (!helper_buf_empty() || do_script_run(now));
-	    while (retry_send(close(daemon->helperfd)));
-	  }
-#endif
-	
+		
 	if (daemon->lease_stream)
 	  fclose(daemon->lease_stream);
 
@@ -1445,24 +1244,6 @@ void clear_cache_and_reload(time_t now)
   if (daemon->port != 0)
     cache_reload();
   
-#ifdef HAVE_DHCP
-  if (daemon->dhcp || daemon->doing_dhcp6)
-    {
-      if (option_bool(OPT_ETHERS))
-	dhcp_read_ethers();
-      reread_dhcp();
-      dhcp_update_configs(daemon->dhcp_conf);
-      lease_update_from_configs(); 
-      lease_update_file(now); 
-      lease_update_dns(1);
-    }
-#ifdef HAVE_DHCP6
-  else if (daemon->doing_ra)
-    /* Not doing DHCP, so no lease system, manage 
-       alarms for ra only */
-    send_alarm(periodic_ra(now), now);
-#endif
-#endif
 }
 
 static int set_dns_listeners(time_t now)
@@ -1687,154 +1468,4 @@ static void check_dns_listeners(time_t now)
 	}
     }
 }
-
-#ifdef HAVE_DHCP
-int make_icmp_sock(void)
-{
-  int fd;
-  int zeroopt = 0;
-
-  if ((fd = socket (AF_INET, SOCK_RAW, IPPROTO_ICMP)) != -1)
-    {
-      if (!fix_fd(fd) ||
-	  setsockopt(fd, SOL_SOCKET, SO_DONTROUTE, &zeroopt, sizeof(zeroopt)) == -1)
-	{
-	  close(fd);
-	  fd = -1;
-	}
-    }
-
-  return fd;
-}
-
-int icmp_ping(struct in_addr addr)
-{
-  /* Try and get an ICMP echo from a machine. */
-
-  int fd;
-  struct sockaddr_in saddr;
-  struct { 
-    struct ip ip;
-    struct icmp icmp;
-  } packet;
-  unsigned short id = rand16();
-  unsigned int i, j;
-  int gotreply = 0;
-
-#if defined(HAVE_LINUX_NETWORK) || defined (HAVE_SOLARIS_NETWORK)
-  if ((fd = make_icmp_sock()) == -1)
-    return 0;
-#else
-  int opt = 2000;
-  fd = daemon->dhcp_icmp_fd;
-  setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
-#endif
-
-  saddr.sin_family = AF_INET;
-  saddr.sin_port = 0;
-  saddr.sin_addr = addr;
-#ifdef HAVE_SOCKADDR_SA_LEN
-  saddr.sin_len = sizeof(struct sockaddr_in);
-#endif
-  
-  memset(&packet.icmp, 0, sizeof(packet.icmp));
-  packet.icmp.icmp_type = ICMP_ECHO;
-  packet.icmp.icmp_id = id;
-  for (j = 0, i = 0; i < sizeof(struct icmp) / 2; i++)
-    j += ((u16 *)&packet.icmp)[i];
-  while (j>>16)
-    j = (j & 0xffff) + (j >> 16);  
-  packet.icmp.icmp_cksum = (j == 0xffff) ? j : ~j;
-  
-  while (retry_send(sendto(fd, (char *)&packet.icmp, sizeof(struct icmp), 0, 
-			   (struct sockaddr *)&saddr, sizeof(saddr))));
-  
-  gotreply = delay_dhcp(dnsmasq_time(), PING_WAIT, fd, addr.s_addr, id);
-
-#if defined(HAVE_LINUX_NETWORK) || defined(HAVE_SOLARIS_NETWORK)
-  while (retry_send(close(fd)));
-#else
-  opt = 1;
-  setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt));
-#endif
-
-  return gotreply;
-}
-
-int delay_dhcp(time_t start, int sec, int fd, uint32_t addr, unsigned short id)
-{
-  /* Delay processing DHCP packets for "sec" seconds counting from "start".
-     If "fd" is not -1 it will stop waiting if an ICMP echo reply is received
-     from "addr" with ICMP ID "id" and return 1 */
-
-  /* Note that whilst waiting, we check for
-     (and service) events on the DNS and TFTP  sockets, (so doing that
-     better not use any resources our caller has in use...)
-     but we remain deaf to signals or further DHCP packets. */
-
-  /* There can be a problem using dnsmasq_time() to end the loop, since
-     it's not monotonic, and can go backwards if the system clock is
-     tweaked, leading to the code getting stuck in this loop and
-     ignoring DHCP requests. To fix this, we check to see if select returned
-     as a result of a timeout rather than a socket becoming available. We
-     only allow this to happen as many times as it takes to get to the wait time
-     in quarter-second chunks. This provides a fallback way to end loop. */
-
-  int rc, timeout_count;
-  time_t now;
-
-  for (now = dnsmasq_time(), timeout_count = 0;
-       (difftime(now, start) <= (float)sec) && (timeout_count < sec * 4);)
-    {
-      poll_reset();
-      if (fd != -1)
-        poll_listen(fd, POLLIN);
-      set_dns_listeners(now);
-      set_log_writer();
-      
-#ifdef HAVE_DHCP6
-      if (daemon->doing_ra)
-	poll_listen(daemon->icmp6fd, POLLIN); 
-#endif
-      
-      rc = do_poll(250);
-      
-      if (rc < 0)
-	continue;
-      else if (rc == 0)
-	timeout_count++;
-
-      now = dnsmasq_time();
-      
-      check_log_writer(0);
-      check_dns_listeners(now);
-      
-#ifdef HAVE_DHCP6
-      if (daemon->doing_ra && poll_check(daemon->icmp6fd, POLLIN))
-	icmp6_packet(now);
-#endif
-      
-      if (fd != -1)
-        {
-          struct {
-            struct ip ip;
-            struct icmp icmp;
-          } packet;
-          struct sockaddr_in faddr;
-          socklen_t len = sizeof(faddr);
-	  
-          if (poll_check(fd, POLLIN) &&
-	      recvfrom(fd, &packet, sizeof(packet), 0, (struct sockaddr *)&faddr, &len) == sizeof(packet) &&
-	      addr == faddr.sin_addr.s_addr &&
-	      packet.icmp.icmp_type == ICMP_ECHOREPLY &&
-	      packet.icmp.icmp_seq == 0 &&
-	      packet.icmp.icmp_id == id)
-	    return 1;
-	}
-    }
-
-  return 0;
-}
-#endif
-
  

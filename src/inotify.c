@@ -194,10 +194,6 @@ void set_dynamic_inotify(int flag, int total_size, struct crec **rhash, int revh
 		 {
 		   if (ah->flags & AH_HOSTS)
 		     total_size = read_hostsfile(path, ah->index, total_size, rhash, revhashsz);
-#ifdef HAVE_DHCP
-		   else if (ah->flags & (AH_DHCP_HST | AH_DHCP_OPT))
-		     option_read_dynfile(path, ah->flags);
-#endif		   
 		 }
 
 	       free(path);
@@ -259,32 +255,7 @@ int inotify_check(time_t now)
 		    if (ah->flags & AH_HOSTS)
 		      {
 			read_hostsfile(path, ah->index, 0, NULL, 0);
-#ifdef HAVE_DHCP
-			if (daemon->dhcp || daemon->doing_dhcp6) 
-			  {
-			    /* Propagate the consequences of loading a new dhcp-host */
-			    dhcp_update_configs(daemon->dhcp_conf);
-			    lease_update_from_configs(); 
-			    lease_update_file(now); 
-			    lease_update_dns(1);
-			  }
-#endif
 		      }
-#ifdef HAVE_DHCP
-		    else if (ah->flags & AH_DHCP_HST)
-		      {
-			if (option_read_dynfile(path, AH_DHCP_HST))
-			  {
-			    /* Propagate the consequences of loading a new dhcp-host */
-			    dhcp_update_configs(daemon->dhcp_conf);
-			    lease_update_from_configs(); 
-			    lease_update_file(now); 
-			    lease_update_dns(1);
-			  }
-		      }
-		    else if (ah->flags & AH_DHCP_OPT)
-		      option_read_dynfile(path, AH_DHCP_OPT);
-#endif
 		    
 		    free(path);
 		  }

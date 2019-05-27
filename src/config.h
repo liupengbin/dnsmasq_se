@@ -60,12 +60,6 @@
 /* compile-time options: uncomment below to enable or do eg.
    make COPTS=-DHAVE_BROKEN_RTC
 
-HAVE_DHCP
-   define this to get dnsmasq's DHCPv4 server.
-
-HAVE_DHCP6
-   define this to get dnsmasq's DHCPv6 server. (implies HAVE_DHCP).
-
 HAVE_SCRIPT
    define this to get the ability to call scripts on lease-change.
 
@@ -144,8 +138,6 @@ RESOLVFILE
 /* The default set of options to build. Built with these options, dnsmasq
    has no library dependencies other than libc */
 
-/* #define HAVE_DHCP */
-/* #define HAVE_DHCP6 */
 /* #define HAVE_SCRIPT */
 /* #define HAVE_AUTH */
 /* #define HAVE_IPSET */ 
@@ -310,20 +302,6 @@ HAVE_SOCKADDR_SA_LEN
 #undef HAVE_IPV6
 #endif
 
-#ifdef NO_DHCP
-#undef HAVE_DHCP
-#undef HAVE_DHCP6
-#endif
-
-#if defined(NO_DHCP6) || !defined(HAVE_IPV6)
-#undef HAVE_DHCP6
-#endif
-
-/* DHCP6 needs DHCP too */
-#ifdef HAVE_DHCP6
-#define HAVE_DHCP
-#endif
-
 #if defined(NO_SCRIPT) || defined(NO_FORK)
 #undef HAVE_SCRIPT
 #undef HAVE_LUASCRIPT
@@ -386,16 +364,6 @@ static char *compile_opts =
 "no-"
  #endif 
 "IDN " 
-#endif
-#ifndef HAVE_DHCP
-"no-"
-#endif
-"DHCP "
-#if defined(HAVE_DHCP)
-#  if !defined (HAVE_DHCP6)
-     "no-"
-#  endif  
-     "DHCPv6 "
 #endif
 #if !defined(HAVE_SCRIPT)
      "no-scripts "

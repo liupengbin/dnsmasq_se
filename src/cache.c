@@ -17,9 +17,6 @@
 #include "dnsmasq.h"
 
 static struct crec *cache_head = NULL, *cache_tail = NULL, **hash_table = NULL;
-#ifdef HAVE_DHCP
-static struct crec *dhcp_spare = NULL;
-#endif
 static struct crec *new_chain = NULL;
 static int insert_error;
 static union bigname *big_free = NULL;
@@ -1195,162 +1192,6 @@ void cache_reload(void)
   
 } 
 
-#ifdef HAVE_DHCP
-struct in_addr a_record_from_hosts(char *name, time_t now)
-{
-  struct crec *crecp = NULL;
-  struct in_addr ret;
-  
-  while ((crecp = cache_find_by_name(crecp, name, now, F_IPV4)))
-    if (crecp->flags & F_HOSTS)
-      return *(struct in_addr *)&crecp->addr;
-
-  my_syslog(MS_DHCP | LOG_WARNING, _("No IPv4 address found for %s"), name);
-  
-  ret.s_addr = 0;
-  return ret;
-}
-
-void cache_unhash_dhcp(void)
-{
-  struct crec *cache, **up;
-  int i;
-
-  for (i=0; i<hash_size; i++)
-    for (cache = hash_table[i], up = &hash_table[i]; cache; cache = cache->hash_next)
-      if (cache->flags & F_DHCP)
-	{
-	  *up = cache->hash_next;
-	  cache->next = dhcp_spare;
-	  dhcp_spare = cache;
-	}
-      else
-	up = &cache->hash_next;
-}
-
-static void add_dhcp_cname(struct crec *target, time_t ttd)
-{
-  struct crec *aliasc;
-  struct cname *a;
-  
-  for (a = daemon->cnames; a; a = a->next)
-    if (a->alias[1] != '*' &&
-	hostname_isequal(cache_get_name(target), a->target))
-      {
-	if ((aliasc = dhcp_spare))
-	  dhcp_spare = dhcp_spare->next;
-	else /* need new one */
-	  aliasc = whine_malloc(SIZEOF_POINTER_CREC);
-	
-	if (aliasc)
-	  {
-	    aliasc->flags = F_FORWARD | F_NAMEP | F_DHCP | F_CNAME | F_CONFIG;
-	    if (ttd == 0)
-	      aliasc->flags |= F_IMMORTAL;
-	    else
-	      aliasc->ttd = ttd;
-	    aliasc->name.namep = a->alias;
-	    aliasc->addr.cname.target.cache = target;
-	    next_uid(target);
-	    aliasc->addr.cname.uid = target->uid;
-	    aliasc->uid = UID_NONE;
-	    cache_hash(aliasc);
-	    make_non_terminals(aliasc);
-	    add_dhcp_cname(aliasc, ttd);
-	  }
-      }
-}
-
-void cache_add_dhcp_entry(char *host_name, int prot,
-			  struct all_addr *host_address, time_t ttd) 
-{
-  struct crec *crec = NULL, *fail_crec = NULL;
-  unsigned short flags = F_IPV4;
-  int in_hosts = 0;
-  size_t addrlen = sizeof(struct in_addr);
-
-#ifdef HAVE_IPV6
-  if (prot == AF_INET6)
-    {
-      flags = F_IPV6;
-      addrlen = sizeof(struct in6_addr);
-    }
-#endif
-  
-  inet_ntop(prot, host_address, daemon->addrbuff, ADDRSTRLEN);
-  
-  while ((crec = cache_find_by_name(crec, host_name, 0, flags | F_CNAME)))
-    {
-      /* check all addresses associated with name */
-      if (crec->flags & (F_HOSTS | F_CONFIG))
-	{
-	  if (crec->flags & F_CNAME)
-	    my_syslog(MS_DHCP | LOG_WARNING, 
-		      _("%s is a CNAME, not giving it to the DHCP lease of %s"),
-		      host_name, daemon->addrbuff);
-	  else if (memcmp(&crec->addr.addr, host_address, addrlen) == 0)
-	    in_hosts = 1;
-	  else
-	    fail_crec = crec;
-	}
-      else if (!(crec->flags & F_DHCP))
-	{
-	  cache_scan_free(host_name, NULL, 0, crec->flags & (flags | F_CNAME | F_FORWARD), NULL, NULL);
-	  /* scan_free deletes all addresses associated with name */
-	  break;
-	}
-    }
-  
-  /* if in hosts, don't need DHCP record */
-  if (in_hosts)
-    return;
-  
-  /* Name in hosts, address doesn't match */
-  if (fail_crec)
-    {
-      inet_ntop(prot, &fail_crec->addr.addr, daemon->namebuff, MAXDNAME);
-      my_syslog(MS_DHCP | LOG_WARNING, 
-		_("not giving name %s to the DHCP lease of %s because "
-		  "the name exists in %s with address %s"), 
-		host_name, daemon->addrbuff,
-		record_source(fail_crec->uid), daemon->namebuff);
-      return;
-    }	  
-  
-  if ((crec = cache_find_by_addr(NULL, (struct all_addr *)host_address, 0, flags)))
-    {
-      if (crec->flags & F_NEG)
-	{
-	  flags |= F_REVERSE;
-	  cache_scan_free(NULL, (struct all_addr *)host_address, 0, flags, NULL, NULL);
-	}
-    }
-  else
-    flags |= F_REVERSE;
-  
-  if ((crec = dhcp_spare))
-    dhcp_spare = dhcp_spare->next;
-  else /* need new one */
-    crec = whine_malloc(SIZEOF_POINTER_CREC);
-  
-  if (crec) /* malloc may fail */
-    {
-      crec->flags = flags | F_NAMEP | F_DHCP | F_FORWARD;
-      if (ttd == 0)
-	crec->flags |= F_IMMORTAL;
-      else
-	crec->ttd = ttd;
-      crec->addr.addr = *host_address;
-      crec->name.namep = host_name;
-      crec->uid = UID_NONE;
-      cache_hash(crec);
-      make_non_terminals(crec);
-
-      add_dhcp_cname(crec, ttd);
-    }
-}
-#endif
-
 /* Called when we put a local or DHCP name into the cache.
    Creates empty cache entries for subnames (ie,
    for three.two.one, for two.one and one), without
@@ -1361,10 +1202,6 @@ static void make_non_terminals(struct crec *source)
   char *name = cache_get_name(source);
   struct crec *crecp, *tmp, **up;
   int type = F_HOSTS | F_CONFIG;
-#ifdef HAVE_DHCP
-  if (source->flags & F_DHCP)
-    type = F_DHCP;
-#endif
   
   /* First delete any empty entries for our new real name. Note that
      we only delete empty entries deriving from DHCP for a new DHCP-derived
@@ -1382,14 +1219,6 @@ static void make_non_terminals(struct crec *source)
 	  hostname_isequal(name, cache_get_name(crecp)))
 	{
 	  *up = crecp->hash_next;
-#ifdef HAVE_DHCP
-	  if (type & F_DHCP)
-	    {
-	      crecp->next = dhcp_spare;
-	      dhcp_spare = crecp;
-	    }
-	  else
-#endif
 	    free(crecp);
 	  break;
 	}
@@ -1423,14 +1252,6 @@ static void make_non_terminals(struct crec *source)
 	  continue;
 	}
       
-#ifdef HAVE_DHCP
-      if ((source->flags & F_DHCP) && dhcp_spare)
-	{
-	  crecp = dhcp_spare;
-	  dhcp_spare = dhcp_spare->next;
-	}
-      else
-#endif
 	crecp = whine_malloc(SIZEOF_POINTER_CREC);
 
       if (crecp)

@@ -75,10 +75,6 @@ typedef unsigned long long u64;
 
 #include "dns-protocol.h"
 #include "dhcp-protocol.h"
-#ifdef HAVE_DHCP6
-#include "dhcp6-protocol.h"
-#include "radv-protocol.h"
-#endif
 
 #define gettext_noop(S) (S)
 #ifndef LOCALEDIR
@@ -720,17 +716,6 @@ struct dhcp_lease {
   int last_interface;
   int new_interface;     /* save possible originated interface */
   int new_prefixlen;     /* and its prefix length */
-#ifdef HAVE_DHCP6
-  struct in6_addr addr6;
-  int iaid;
-  struct slaac_address {
-    struct in6_addr addr;
-    time_t ping_time;
-    int backoff; /* zero -> confirmed */
-    struct slaac_address *next;
-  } *slaac_address;
-  int vendorclass_count;
-#endif
   struct dhcp_lease *next;
 };
 
@@ -769,9 +754,6 @@ struct dhcp_config {
   unsigned char *clid;   /* clientid */
   char *hostname, *domain;
   struct dhcp_netid_list *netid;
-#ifdef HAVE_DHCP6
-  struct in6_addr addr6;
-#endif
   struct in_addr addr;
   time_t decline_time;
   unsigned int lease_time;
@@ -901,14 +883,6 @@ struct dhcp_context {
   struct in_addr netmask, broadcast;
   struct in_addr local, router;
   struct in_addr start, end; /* range of available addresses */
-#ifdef HAVE_DHCP6
-  struct in6_addr start6, end6; /* range of available addresses */
-  struct in6_addr local6;
-  int prefix, if_index;
-  unsigned int valid, preferred, saved_valid;
-  time_t ra_time, ra_short_period_start, address_lost_time;
-  char *template_interface;
-#endif
   int flags;
   struct dhcp_netid netid, *filter;
   struct dhcp_context *next, *current;
@@ -1109,12 +1083,6 @@ extern struct daemon {
   struct ping_result *ping_results;
   FILE *lease_stream;
   struct dhcp_bridge *bridges;
-#ifdef HAVE_DHCP6
-  int duid_len;
-  unsigned char *duid;
-  struct iovec outpacket;
-  int dhcp6fd, icmp6fd;
-#endif
   /* DBus stuff */
   /* void * here to avoid depending on dbus headers outside dbus.c */
   void *dbus;
@@ -1348,89 +1316,10 @@ int tcp_interface(int fd, int af);
 #ifdef HAVE_IPV6
 int set_ipv6pktinfo(int fd);
 #endif
-#ifdef HAVE_DHCP6
-void join_multicast(int dienow);
-#endif
 #if defined(HAVE_LINUX_NETWORK) || defined(HAVE_BSD_NETWORK)
 void newaddress(time_t now);
 #endif
 
-
-/* dhcp.c */
-#ifdef HAVE_DHCP
-void dhcp_init(void);
-void dhcp_packet(time_t now, int pxe_fd);
-struct dhcp_context *address_available(struct dhcp_context *context, 
-				       struct in_addr taddr,
-				       struct dhcp_netid *netids);
-struct dhcp_context *narrow_context(struct dhcp_context *context, 
-				    struct in_addr taddr,
-				    struct dhcp_netid *netids);
-struct ping_result *do_icmp_ping(time_t now, struct in_addr addr,
-				 unsigned int hash, int loopback);
-int address_allocate(struct dhcp_context *context,
-		     struct in_addr *addrp, unsigned char *hwaddr, int hw_len,
-		     struct dhcp_netid *netids, time_t now, int loopback);
-void dhcp_read_ethers(void);
-struct dhcp_config *config_find_by_address(struct dhcp_config *configs, struct in_addr addr);
-char *host_from_dns(struct in_addr addr);
-#endif
-
-/* lease.c */
-#ifdef HAVE_DHCP
-void lease_update_file(time_t now);
-void lease_update_dns(int force);
-void lease_init(time_t now);
-struct dhcp_lease *lease4_allocate(struct in_addr addr);
-#ifdef HAVE_DHCP6
-struct dhcp_lease *lease6_allocate(struct in6_addr *addrp, int lease_type);
-struct dhcp_lease *lease6_find(unsigned char *clid, int clid_len, 
-			       int lease_type, int iaid, struct in6_addr *addr);
-void lease6_reset(void);
-struct dhcp_lease *lease6_find_by_client(struct dhcp_lease *first, int lease_type, unsigned char *clid, int clid_len, int iaid);
-struct dhcp_lease *lease6_find_by_addr(struct in6_addr *net, int prefix, u64 addr);
-u64 lease_find_max_addr6(struct dhcp_context *context);
-void lease_ping_reply(struct in6_addr *sender, unsigned char *packet, char *interface);
-void lease_update_slaac(time_t now);
-void lease_set_iaid(struct dhcp_lease *lease, int iaid);
-void lease_make_duid(time_t now);
-#endif
-void lease_set_hwaddr(struct dhcp_lease *lease, const unsigned char *hwaddr,
-		      const unsigned char *clid, int hw_len, int hw_type,
-		      int clid_len, time_t now, int force);
-void lease_set_hostname(struct dhcp_lease *lease, const char *name, int auth, char *domain, char *config_domain);
-void lease_set_expires(struct dhcp_lease *lease, unsigned int len, time_t now);
-void lease_set_interface(struct dhcp_lease *lease, int interface, time_t now);
-struct dhcp_lease *lease_find_by_client(unsigned char *hwaddr, int hw_len, int hw_type,  
-					unsigned char *clid, int clid_len);
-struct dhcp_lease *lease_find_by_addr(struct in_addr addr);
-struct in_addr lease_find_max_addr(struct dhcp_context *context);
-void lease_prune(struct dhcp_lease *target, time_t now);
-void lease_update_from_configs(void);
-int do_script_run(time_t now);
-void rerun_scripts(void);
-void lease_find_interfaces(time_t now);
-#ifdef HAVE_SCRIPT
-void lease_add_extradata(struct dhcp_lease *lease, unsigned char *data, 
-			 unsigned int len, int delim);
-#endif
-#endif
-
-/* rfc2131.c */
-#ifdef HAVE_DHCP
-size_t dhcp_reply(struct dhcp_context *context, char *iface_name, int int_index,
-		  size_t sz, time_t now, int unicast_dest, int loopback,
-		  int *is_inform, int pxe, struct in_addr fallback, time_t recvtime);
-unsigned char *extended_hwaddr(int hwtype, int hwlen, unsigned char *hwaddr, 
-			       int clid_len, unsigned char *clid, int *len_out);
-#endif
-
-/* dnsmasq.c */
-#ifdef HAVE_DHCP
-int make_icmp_sock(void);
-int icmp_ping(struct in_addr addr);
-int delay_dhcp(time_t start, int sec, int fd, uint32_t addr, unsigned short id);
-#endif
 void queue_event(int event);
 void send_alarm(time_t event, time_t now);
 void send_event(int fd, int event, int data, char *msg);
@@ -1459,9 +1348,6 @@ int iface_enumerate(int family, void *parm, int (callback)());
 char *dbus_init(void);
 void check_dbus_listeners(void);
 void set_dbus_listeners(void);
-#  ifdef HAVE_DHCP
-void emit_dbus_signal(int action, struct dhcp_lease *lease, char *hostname);
-#  endif
 #endif
 
 /* ubus.c */
@@ -1492,103 +1378,6 @@ int helper_buf_empty(void);
 #ifdef HAVE_CONNTRACK
 int get_incoming_mark(union mysockaddr *peer_addr, struct all_addr *local_addr,
 		      int istcp, unsigned int *markp);
-#endif
-
-/* dhcp6.c */
-#ifdef HAVE_DHCP6
-void dhcp6_init(void);
-void dhcp6_packet(time_t now);
-struct dhcp_context *address6_allocate(struct dhcp_context *context,  unsigned char *clid, int clid_len, int temp_addr,
-				       int iaid, int serial, struct dhcp_netid *netids, int plain_range, struct in6_addr *ans);
-int config_valid(struct dhcp_config *config, struct dhcp_context *context, struct in6_addr *addr);
-struct dhcp_context *address6_available(struct dhcp_context *context, 
-					struct in6_addr *taddr,
-					struct dhcp_netid *netids,
-					int plain_range);
-struct dhcp_context *address6_valid(struct dhcp_context *context, 
-				    struct in6_addr *taddr,
-				    struct dhcp_netid *netids,
-				    int plain_range);
-struct dhcp_config *config_find_by_address6(struct dhcp_config *configs, struct in6_addr *net, 
-					    int prefix, u64 addr);
-void make_duid(time_t now);
-void dhcp_construct_contexts(time_t now);
-void get_client_mac(struct in6_addr *client, int iface, unsigned char *mac, 
-		    unsigned int *maclenp, unsigned int *mactypep, time_t now);
-#endif
-  
-/* rfc3315.c */
-#ifdef HAVE_DHCP6
-unsigned short dhcp6_reply(struct dhcp_context *context, int interface, char *iface_name,  
-			   struct in6_addr *fallback, struct in6_addr *ll_addr, struct in6_addr *ula_addr,
-			   size_t sz, struct in6_addr *client_addr, time_t now);
-void relay_upstream6(struct dhcp_relay *relay, ssize_t sz, struct in6_addr *peer_address, 
-		     u32 scope_id, time_t now);
-
-unsigned short relay_reply6( struct sockaddr_in6 *peer, ssize_t sz, char *arrival_interface);
-#endif
-
-/* dhcp-common.c */
-#ifdef HAVE_DHCP
-void dhcp_common_init(void);
-ssize_t recv_dhcp_packet(int fd, struct msghdr *msg);
-struct dhcp_netid *run_tag_if(struct dhcp_netid *tags);
-struct dhcp_netid *option_filter(struct dhcp_netid *tags, struct dhcp_netid *context_tags,
-				 struct dhcp_opt *opts);
-int match_netid(struct dhcp_netid *check, struct dhcp_netid *pool, int tagnotneeded);
-char *strip_hostname(char *hostname);
-void log_tags(struct dhcp_netid *netid, u32 xid);
-int match_bytes(struct dhcp_opt *o, unsigned char *p, int len);
-void dhcp_update_configs(struct dhcp_config *configs);
-void display_opts(void);
-int lookup_dhcp_opt(int prot, char *name);
-int lookup_dhcp_len(int prot, int val);
-char *option_string(int prot, unsigned int opt, unsigned char *val, 
-		    int opt_len, char *buf, int buf_len);
-struct dhcp_config *find_config(struct dhcp_config *configs,
-				struct dhcp_context *context,
-				unsigned char *clid, int clid_len,
-				unsigned char *hwaddr, int hw_len, 
-				int hw_type, char *hostname);
-int config_has_mac(struct dhcp_config *config, unsigned char *hwaddr, int len, int type);
-#ifdef HAVE_LINUX_NETWORK
-char *whichdevice(void);
-void bindtodevice(char *device, int fd);
-#endif
-#  ifdef HAVE_DHCP6
-void display_opts6(void);
-#  endif
-void log_context(int family, struct dhcp_context *context);
-void log_relay(int family, struct dhcp_relay *relay);
-#endif
-
-/* outpacket.c */
-#ifdef HAVE_DHCP6
-void end_opt6(int container);
-void reset_counter(void);
-int save_counter(int newval);
-void *expand(size_t headroom);
-int new_opt6(int opt);
-void *put_opt6(void *data, size_t len);
-void put_opt6_long(unsigned int val);
-void put_opt6_short(unsigned int val);
-void put_opt6_char(unsigned int val);
-void put_opt6_string(char *s);
-#endif
-
-/* radv.c */
-#ifdef HAVE_DHCP6
-void ra_init(time_t now);
-void icmp6_packet(time_t now);
-time_t periodic_ra(time_t now);
-void ra_start_unsolicited(time_t now, struct dhcp_context *context);
-#endif
-
-/* slaac.c */ 
-#ifdef HAVE_DHCP6
-void slaac_add_addrs(struct dhcp_lease *lease, time_t now, int force);
-time_t periodic_slaac(time_t now, struct dhcp_lease *leases);
-void slaac_ping_reply(struct in6_addr *sender, unsigned char *packet, char *interface, struct dhcp_lease *leases);
 #endif
 
 /* loop.c */

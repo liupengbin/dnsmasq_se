@@ -221,16 +221,6 @@ int iface_enumerate(int family, void *parm, int (*callback)())
 	    }
 #endif /* HAVE_IPV6 */
 
-#ifdef HAVE_DHCP6      
-	  else if (family == AF_LINK)
-	    { 
-	      /* Assume ethernet again here */
-	      struct sockaddr_dl *sdl = (struct sockaddr_dl *) addrs->ifa_addr;
-	      if (sdl->sdl_alen != 0 && 
-		  !((*callback)(iface_index, ARPHRD_ETHER, LLADDR(sdl), sdl->sdl_alen, parm)))
-		goto err;
-	    }
-#endif 
 	}
     }
   
@@ -245,127 +235,7 @@ int iface_enumerate(int family, void *parm, int (*callback)())
 
   return ret;
 }
-#endif /* defined(HAVE_BSD_NETWORK) || defined(HAVE_SOLARIS_NETWORK) */
-
-
-#if defined(HAVE_BSD_NETWORK) && defined(HAVE_DHCP)
-#include <net/bpf.h>
-
-void init_bpf(void)
-{
-  int i = 0;
-
-  while (1) 
-    {
-      sprintf(daemon->dhcp_buff, "/dev/bpf%d", i++);
-      if ((daemon->dhcp_raw_fd = open(daemon->dhcp_buff, O_RDWR, 0)) != -1)
-	return;
-
-      if (errno != EBUSY)
-	die(_("cannot create DHCP BPF socket: %s"), NULL, EC_BADNET);
-    }	     
-}
-
-void send_via_bpf(struct dhcp_packet *mess, size_t len,
-		  struct in_addr iface_addr, struct ifreq *ifr)
-{
-   /* Hairy stuff, packet either has to go to the
-      net broadcast or the destination can't reply to ARP yet,
-      but we do know the physical address. 
-      Build the packet by steam, and send directly, bypassing
-      the kernel IP stack */
-  
-  struct ether_header ether; 
-  struct ip ip;
-  struct udphdr {
-    u16 uh_sport;               /* source port */
-    u16 uh_dport;               /* destination port */
-    u16 uh_ulen;                /* udp length */
-    u16 uh_sum;                 /* udp checksum */
-  } udp;
-  
-  u32 i, sum;
-  struct iovec iov[4];
-
-  /* Only know how to do ethernet on *BSD */
-  if (mess->htype != ARPHRD_ETHER || mess->hlen != ETHER_ADDR_LEN)
-    {
-      my_syslog(MS_DHCP | LOG_WARNING, _("DHCP request for unsupported hardware type (%d) received on %s"), 
-		mess->htype, ifr->ifr_name);
-      return;
-    }
-   
-  ifr->ifr_addr.sa_family = AF_LINK;
-  if (ioctl(daemon->dhcpfd, SIOCGIFADDR, ifr) < 0)
-    return;
-  
-  memcpy(ether.ether_shost, LLADDR((struct sockaddr_dl *)&ifr->ifr_addr), ETHER_ADDR_LEN);
-  ether.ether_type = htons(ETHERTYPE_IP);
-  
-  if (ntohs(mess->flags) & 0x8000)
-    {
-      memset(ether.ether_dhost, 255,  ETHER_ADDR_LEN);
-      ip.ip_dst.s_addr = INADDR_BROADCAST;
-    }
-  else
-    {
-      memcpy(ether.ether_dhost, mess->chaddr, ETHER_ADDR_LEN); 
-      ip.ip_dst.s_addr = mess->yiaddr.s_addr;
-    }
-  
-  ip.ip_p = IPPROTO_UDP;
-  ip.ip_src.s_addr = iface_addr.s_addr;
-  ip.ip_len = htons(sizeof(struct ip) + 
-		    sizeof(struct udphdr) +
-		    len) ;
-  ip.ip_hl = sizeof(struct ip) / 4;
-  ip.ip_v = IPVERSION;
-  ip.ip_tos = 0;
-  ip.ip_id = htons(0);
-  ip.ip_off = htons(0x4000); /* don't fragment */
-  ip.ip_ttl = IPDEFTTL;
-  ip.ip_sum = 0;
-  for (sum = 0, i = 0; i < sizeof(struct ip) / 2; i++)
-    sum += ((u16 *)&ip)[i];
-  while (sum>>16)
-    sum = (sum & 0xffff) + (sum >> 16);  
-  ip.ip_sum = (sum == 0xffff) ? sum : ~sum;
-  
-  udp.uh_sport = htons(daemon->dhcp_server_port);
-  udp.uh_dport = htons(daemon->dhcp_client_port);
-  if (len & 1)
-    ((char *)mess)[len] = 0; /* for checksum, in case length is odd. */
-  udp.uh_sum = 0;
-  udp.uh_ulen = sum = htons(sizeof(struct udphdr) + len);
-  sum += htons(IPPROTO_UDP);
-  sum += ip.ip_src.s_addr & 0xffff;
-  sum += (ip.ip_src.s_addr >> 16) & 0xffff;
-  sum += ip.ip_dst.s_addr & 0xffff;
-  sum += (ip.ip_dst.s_addr >> 16) & 0xffff;
-  for (i = 0; i < sizeof(struct udphdr)/2; i++)
-    sum += ((u16 *)&udp)[i];
-  for (i = 0; i < (len + 1) / 2; i++)
-    sum += ((u16 *)mess)[i];
-  while (sum>>16)
-    sum = (sum & 0xffff) + (sum >> 16);
-  udp.uh_sum = (sum == 0xffff) ? sum : ~sum;
-  
-  ioctl(daemon->dhcp_raw_fd, BIOCSETIF, ifr);
-  
-  iov[0].iov_base = &ether;
-  iov[0].iov_len = sizeof(ether);
-  iov[1].iov_base = &ip;
-  iov[1].iov_len = sizeof(ip);
-  iov[2].iov_base = &udp;
-  iov[2].iov_len = sizeof(udp);
-  iov[3].iov_base = mess;
-  iov[3].iov_len = len;
-
-  while (retry_send(writev(daemon->dhcp_raw_fd, iov, 4)));
-}
-
-#endif /* defined(HAVE_BSD_NETWORK) && defined(HAVE_DHCP) */
- 
+#endif /* defined(HAVE_BSD_NETWORK) || defined(HAVE_SOLARIS_NETWORK) */ 
 
 #ifdef HAVE_BSD_NETWORK
 

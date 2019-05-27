@@ -60,9 +60,6 @@ struct script_data
 #ifdef HAVE_IPV6
   struct in6_addr addr6;
 #endif
-#ifdef HAVE_DHCP6
-  int iaid, vendorclass_count;
-#endif
   unsigned char hwaddr[DHCP_CHADDR_MAX];
   char interface[IF_NAMESIZE];
 };
@@ -257,21 +254,6 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	      p += sprintf(p, ":");
 	}
 
-#ifdef HAVE_DHCP6
-      if (is6)
-	{
-	  /* or IAID and server DUID for IPv6 */
-	  sprintf(daemon->dhcp_buff3, "%s%u", data.flags & LEASE_TA ? "T" : "", data.iaid);	
-	  for (p = daemon->dhcp_packet.iov_base, i = 0; i < daemon->duid_len; i++)
-	    {
-	      p += sprintf(p, "%.2x", daemon->duid[i]);
-	      if (i != daemon->duid_len - 1) 
-		p += sprintf(p, ":");
-	    }
-
-	}
-#endif
-
       buf += data.clid_len;
 
       if (data.hostname_len != 0)
@@ -385,18 +367,6 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	      
 	      if (!is6)
 		buf = grab_extradata_lua(buf, end, "vendor_class");
-#ifdef HAVE_DHCP6
-	      else  if (data.vendorclass_count != 0)
-		{
-		  sprintf(daemon->dhcp_buff2, "vendor_class_id");
-		  buf = grab_extradata_lua(buf, end, daemon->dhcp_buff2);
-		  for (i = 0; i < data.vendorclass_count - 1; i++)
-		    {
-		      sprintf(daemon->dhcp_buff2, "vendor_class%i", i);
-		      buf = grab_extradata_lua(buf, end, daemon->dhcp_buff2);
-		    }
-		}
-#endif
 	      
 	      buf = grab_extradata_lua(buf, end, "supplied_hostname");
 	      
@@ -538,11 +508,6 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
       
       if (data.action != ACTION_TFTP && data.action != ACTION_ARP)
 	{
-#ifdef HAVE_DHCP6
-	  my_setenv("DNSMASQ_IAID", is6 ? daemon->dhcp_buff3 : NULL, &err);
-	  my_setenv("DNSMASQ_SERVER_DUID", is6 ? daemon->dhcp_packet.iov_base : NULL, &err); 
-	  my_setenv("DNSMASQ_MAC", is6 && data.hwaddr_len != 0 ? daemon->dhcp_buff : NULL, &err);
-#endif
 	  
 	  my_setenv("DNSMASQ_CLIENT_ID", !is6 && data.clid_len != 0 ? daemon->packet : NULL, &err);
 	  my_setenv("DNSMASQ_INTERFACE", strlen(data.interface) != 0 ? data.interface : NULL, &err);
@@ -557,20 +522,6 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	  
 	  if (!is6)
 	    buf = grab_extradata(buf, end, "DNSMASQ_VENDOR_CLASS", &err);
-#ifdef HAVE_DHCP6
-	  else
-	    {
-	      if (data.vendorclass_count != 0)
-		{
-		  buf = grab_extradata(buf, end, "DNSMASQ_VENDOR_CLASS_ID", &err);
-		  for (i = 0; i < data.vendorclass_count - 1; i++)
-		    {
-		      sprintf(daemon->dhcp_buff2, "DNSMASQ_VENDOR_CLASS%i", i);
-		      buf = grab_extradata(buf, end, daemon->dhcp_buff2, &err);
-		    }
-		}
-	    }
-#endif
 	  
 	  buf = grab_extradata(buf, end, "DNSMASQ_SUPPLIED_HOSTNAME", &err);
 	  
@@ -717,10 +668,6 @@ void queue_script(int action, struct dhcp_lease *lease, char *hostname, time_t n
   unsigned char *p;
   unsigned int hostname_len = 0, clid_len = 0, ed_len = 0;
   int fd = daemon->dhcpfd;
-#ifdef HAVE_DHCP6 
-  if (!daemon->dhcp)
-    fd = daemon->dhcp6fd;
-#endif
 
   /* no script */
   if (daemon->helperfd == -1)
@@ -737,11 +684,6 @@ void queue_script(int action, struct dhcp_lease *lease, char *hostname, time_t n
 
   buf->action = action;
   buf->flags = lease->flags;
-#ifdef HAVE_DHCP6 
-  buf->vendorclass_count = lease->vendorclass_count;
-  buf->addr6 = lease->addr6;
-  buf->iaid = lease->iaid;
-#endif
   buf->hwaddr_len = lease->hwaddr_len;
   buf->hwaddr_type = lease->hwaddr_type;
   buf->clid_len = clid_len;

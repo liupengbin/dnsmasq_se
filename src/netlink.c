@@ -56,10 +56,6 @@ void netlink_init(void)
   if (option_bool(OPT_CLEVERBIND))
     addr.nl_groups |= RTMGRP_IPV6_IFADDR;
 #endif
-#ifdef HAVE_DHCP6
-  if (daemon->doing_ra || daemon->doing_dhcp6)
-    addr.nl_groups |= RTMGRP_IPV6_IFADDR;
-#endif
   
   /* May not be able to have permission to set multicast groups don't die in that case */
   if ((daemon->netlinkfd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE)) != -1)
@@ -299,31 +295,6 @@ int iface_enumerate(int family, void *parm, int (*callback)())
 	      if (!((*callback)(neigh->ndm_family, inaddr, mac, maclen, parm)))
 		callback_ok = 0;
 	  }
-#ifdef HAVE_DHCP6
-	else if (h->nlmsg_type == RTM_NEWLINK && family == AF_LOCAL)
-	  {
-	    struct ifinfomsg *link =  NLMSG_DATA(h);
-	    struct rtattr *rta = IFLA_RTA(link);
-	    unsigned int len1 = h->nlmsg_len - NLMSG_LENGTH(sizeof(*link));
-	    char *mac = NULL;
-	    size_t maclen = 0;
-
-	    while (RTA_OK(rta, len1))
-	      {
-		if (rta->rta_type == IFLA_ADDRESS)
-		  {
-		    maclen = rta->rta_len - sizeof(struct rtattr);
-		    mac = (char *)(rta+1);
-		  }
-		
-		rta = RTA_NEXT(rta, len1);
-	      }
-
-	    if (mac && callback_ok && !((link->ifi_flags & (IFF_LOOPBACK | IFF_POINTOPOINT))) && 
-		!((*callback)((int)link->ifi_index, (unsigned int)link->ifi_type, mac, maclen, parm)))
-	      callback_ok = 0;
-	  }
-#endif
     }
 }
 
