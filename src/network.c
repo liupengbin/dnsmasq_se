@@ -245,7 +245,7 @@ static int iface_allowed(struct iface_param *param, int if_index, char *label,
   int dhcp_ok = 1;
   int auth_dns = 0;
   int is_label = 0;
-#if defined(HAVE_DHCP) || defined(HAVE_TFTP)
+#if defined(HAVE_DHCP)
   struct iname *tmp;
 #endif
 
@@ -459,19 +459,7 @@ static int iface_allowed(struct iface_param *param, int if_index, char *label,
 	  dhcp_ok = 0;
 	}
 #endif
- 
-  
-#ifdef HAVE_TFTP
-  if (daemon->tftp_interfaces)
-    {
-      /* dedicated tftp interface list */
-      tftp_ok = 0;
-      for (tmp = daemon->tftp_interfaces; tmp; tmp = tmp->next)
-	if (tmp->name && wildcard_match(tmp->name, ifr.ifr_name))
-	  tftp_ok = 1;
-    }
-#endif
-  
+   
   /* add to list */
   if ((iface = whine_malloc(sizeof(struct irec))))
     {
@@ -893,29 +881,6 @@ static struct listener *create_listeners(union mysockaddr *addr, int do_tftp, in
       tcpfd = make_sock(addr, SOCK_STREAM, dienow);
     }
   
-#ifdef HAVE_TFTP
-  if (do_tftp)
-    {
-      if (addr->sa.sa_family == AF_INET)
-	{
-	  /* port must be restored to DNS port for TCP code */
-	  short save = addr->in.sin_port;
-	  addr->in.sin_port = htons(TFTP_PORT);
-	  tftpfd = make_sock(addr, SOCK_DGRAM, dienow);
-	  addr->in.sin_port = save;
-	}
-#  ifdef HAVE_IPV6
-      else
-	{
-	  short save = addr->in6.sin6_port;
-	  addr->in6.sin6_port = htons(TFTP_PORT);
-	  tftpfd = make_sock(addr, SOCK_DGRAM, dienow);
-	  addr->in6.sin6_port = save;
-	}  
-#  endif
-    }
-#endif
-
   if (fd != -1 || tcpfd != -1 || tftpfd != -1)
     {
       l = safe_malloc(sizeof(struct listener));

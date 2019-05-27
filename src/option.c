@@ -2702,57 +2702,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
 	ret_err(gen_err);
       break;
 #endif
-      
-#ifdef HAVE_TFTP
-    case LOPT_TFTP_MAX:  /*  --tftp-max */
-      if (!atoi_check(arg, &daemon->tftp_max))
-	ret_err(gen_err);
-      break;  
-
-    case LOPT_TFTP_MTU:  /*  --tftp-mtu */
-      if (!atoi_check(arg, &daemon->tftp_mtu))
-	ret_err(gen_err);
-      break;
-
-    case LOPT_PREFIX: /* --tftp-prefix */
-      comma = split(arg);
-      if (comma)
-	{
-	  struct tftp_prefix *new = opt_malloc(sizeof(struct tftp_prefix));
-	  new->interface = opt_string_alloc(comma);
-	  new->prefix = opt_string_alloc(arg);
-	  new->next = daemon->if_prefix;
-	  daemon->if_prefix = new;
-	}
-      else
-	daemon->tftp_prefix = opt_string_alloc(arg);
-      break;
-
-    case LOPT_TFTPPORTS: /* --tftp-port-range */
-      if (!(comma = split(arg)) || 
-	  !atoi_check16(arg, &daemon->start_tftp_port) ||
-	  !atoi_check16(comma, &daemon->end_tftp_port))
-	ret_err(_("bad port range"));
-      
-      if (daemon->start_tftp_port > daemon->end_tftp_port)
-	{
-	  int tmp = daemon->start_tftp_port;
-	  daemon->start_tftp_port = daemon->end_tftp_port;
-	  daemon->end_tftp_port = tmp;
-	} 
-      
-      break;
-
-    case LOPT_APREF: /* --tftp-unique-root */
-      if (!arg || strcasecmp(arg, "ip") == 0)
-        set_option_bool(OPT_TFTP_APREF_IP);
-      else if (strcasecmp(arg, "mac") == 0)
-        set_option_bool(OPT_TFTP_APREF_MAC);
-      else
-        ret_err(gen_err);
-      break;
-#endif
-	      
+      	      
     case LOPT_BRIDGE:   /* --bridge-interface */
       {
 	struct dhcp_bridge *new;

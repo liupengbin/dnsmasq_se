@@ -59,9 +59,6 @@ int main (int argc, char **argv)
   struct dhcp_context *context;
   struct dhcp_relay *relay;
 #endif
-#ifdef HAVE_TFTP
-  int tftp_prefix_missing = 0;
-#endif
 
 #ifdef LOCALEDIR
   setlocale(LC_ALL, "");
@@ -193,11 +190,6 @@ int main (int argc, char **argv)
       die(_("DNSSEC not available: set HAVE_DNSSEC in src/config.h"), NULL, EC_BADCONF);
 #endif
     }
-
-#ifndef HAVE_TFTP
-  if (option_bool(OPT_TFTP))
-    die(_("TFTP server not available: set HAVE_TFTP in src/config.h"), NULL, EC_BADCONF);
-#endif
 
 #ifdef HAVE_CONNTRACK
   if (option_bool(OPT_CONNTRACK) && (daemon->query_port != 0 || daemon->osport))
@@ -706,45 +698,6 @@ int main (int argc, char **argv)
     prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
 #endif
 
-#ifdef HAVE_TFTP
-  if (option_bool(OPT_TFTP))
-    {
-      DIR *dir;
-      struct tftp_prefix *p;
-      
-      if (daemon->tftp_prefix)
-	{
-	  if (!((dir = opendir(daemon->tftp_prefix))))
-	    {
-	      tftp_prefix_missing = 1;
-	      if (!option_bool(OPT_TFTP_NO_FAIL))
-	        {
-	          send_event(err_pipe[1], EVENT_TFTP_ERR, errno, daemon->tftp_prefix);
-	          _exit(0);
-	        }
-	    }
-	  else
-	    closedir(dir);
-	}
-
-      for (p = daemon->if_prefix; p; p = p->next)
-	{
-	  p->missing = 0;
-	  if (!((dir = opendir(p->prefix))))
-	    {
-	      p->missing = 1;
-	      if (!option_bool(OPT_TFTP_NO_FAIL))
-		{
-		  send_event(err_pipe[1], EVENT_TFTP_ERR, errno, p->prefix);
-		  _exit(0);
-		}
-	    }
-	  else
-	    closedir(dir);
-	}
-    }
-#endif
-
   if (daemon->port == 0)
     my_syslog(LOG_INFO, _("started, version %s DNS disabled"), VERSION);
   else 
@@ -873,53 +826,6 @@ int main (int argc, char **argv)
     lease_find_interfaces(now);
 #endif
 
-#ifdef HAVE_TFTP
-  if (option_bool(OPT_TFTP))
-    {
-      struct tftp_prefix *p;
-
-      my_syslog(MS_TFTP | LOG_INFO, "TFTP %s%s %s", 
-		daemon->tftp_prefix ? _("root is ") : _("enabled"),
-		daemon->tftp_prefix ? daemon->tftp_prefix: "",
-		option_bool(OPT_TFTP_SECURE) ? _("secure mode") : "");
-
-      if (tftp_prefix_missing)
-	my_syslog(MS_TFTP | LOG_WARNING, _("warning: %s inaccessible"), daemon->tftp_prefix);
-
-      for (p = daemon->if_prefix; p; p = p->next)
-	if (p->missing)
-	   my_syslog(MS_TFTP | LOG_WARNING, _("warning: TFTP directory %s inaccessible"), p->prefix);
-
-      /* This is a guess, it assumes that for small limits, 
-	 disjoint files might be served, but for large limits, 
-	 a single file will be sent to may clients (the file only needs
-	 one fd). */
-
-      max_fd -= 30; /* use other than TFTP */
-      
-      if (max_fd < 0)
-	max_fd = 5;
-      else if (max_fd < 100)
-	max_fd = max_fd/2;
-      else
-	max_fd = max_fd - 20;
-      
-      /* if we have to use a limited range of ports, 
-	 that will limit the number of transfers */
-      if (daemon->start_tftp_port != 0 &&
-	  daemon->end_tftp_port - daemon->start_tftp_port + 1 < max_fd)
-	max_fd = daemon->end_tftp_port - daemon->start_tftp_port + 1;
-
-      if (daemon->tftp_max > max_fd)
-	{
-	  daemon->tftp_max = max_fd;
-	  my_syslog(MS_TFTP | LOG_WARNING, 
-		    _("restricting maximum simultaneous TFTP transfers to %d"), 
-		    daemon->tftp_max);
-	}
-    }
-#endif
-
   /* finished start-up - release original process */
   if (err_pipe[1] != -1)
     while (retry_send(close(err_pipe[1])));
@@ -1004,10 +910,6 @@ int main (int argc, char **argv)
 	find_mac(NULL, NULL, 0, now);
       while (helper_buf_empty() && do_arp_script_run());
 
-#    ifdef HAVE_TFTP
-      while (helper_buf_empty() && do_tftp_script_run());
-#    endif
-
       if (!helper_buf_empty())
 	poll_listen(daemon->helperfd, POLLOUT);
 #else
@@ -1017,10 +919,6 @@ int main (int argc, char **argv)
 #    endif
 
       while (do_arp_script_run());
-
-#    ifdef HAVE_TFTP 
-      while (do_tftp_script_run());
-#    endif
 
 #endif
 
@@ -1100,10 +998,6 @@ int main (int argc, char **argv)
 #endif
 
       check_dns_listeners(now);
-
-#ifdef HAVE_TFTP
-      check_tftp_listeners(now);
-#endif      
 
 #ifdef HAVE_DHCP
       if (daemon->dhcp || daemon->relay4)
@@ -1576,17 +1470,7 @@ static int set_dns_listeners(time_t now)
   struct serverfd *serverfdp;
   struct listener *listener;
   int wait = 0, i;
-  
-#ifdef HAVE_TFTP
-  int  tftp = 0;
-  struct tftp_transfer *transfer;
-  for (transfer = daemon->tftp_trans; transfer; transfer = transfer->next)
-    {
-      tftp++;
-      poll_listen(transfer->sockfd, POLLIN);
-    }
-#endif
-  
+    
   /* will we be able to get memory? */
   if (daemon->port != 0)
     get_new_frec(now, &wait, 0);
@@ -1615,11 +1499,6 @@ static int set_dns_listeners(time_t now)
 	      break;
 	    }
 
-#ifdef HAVE_TFTP
-      if (tftp <= daemon->tftp_max && listener->tftpfd != -1)
-	poll_listen(listener->tftpfd, POLLIN);
-#endif
-
     }
   
   return wait;
@@ -1646,11 +1525,6 @@ static void check_dns_listeners(time_t now)
       if (listener->fd != -1 && poll_check(listener->fd, POLLIN))
 	receive_query(listener, now); 
       
-#ifdef HAVE_TFTP     
-      if (listener->tftpfd != -1 && poll_check(listener->tftpfd, POLLIN))
-	tftp_request(listener, now);
-#endif
-
       if (listener->tcpfd != -1 && poll_check(listener->tcpfd, POLLIN))
 	{
 	  int confd, client_ok = 1;
@@ -1940,10 +1814,6 @@ int delay_dhcp(time_t start, int sec, int fd, uint32_t addr, unsigned short id)
 	icmp6_packet(now);
 #endif
       
-#ifdef HAVE_TFTP
-      check_tftp_listeners(now);
-#endif
-
       if (fd != -1)
         {
           struct {

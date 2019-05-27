@@ -60,9 +60,6 @@
 /* compile-time options: uncomment below to enable or do eg.
    make COPTS=-DHAVE_BROKEN_RTC
 
-HAVE_TFTP
-   define this to get dnsmasq's built-in TFTP server.
-
 HAVE_DHCP
    define this to get dnsmasq's DHCPv4 server.
 
@@ -118,7 +115,6 @@ HAVE_INOTIFY
 NO_ID
    Don't report *.bind CHAOS info to clients, forward such requests upstream instead.
 NO_IPV6
-NO_TFTP
 NO_DHCP
 NO_DHCP6
 NO_SCRIPT
@@ -150,7 +146,6 @@ RESOLVFILE
 
 /* #define HAVE_DHCP */
 /* #define HAVE_DHCP6 */
-/* #define HAVE_TFTP */
 /* #define HAVE_SCRIPT */
 /* #define HAVE_AUTH */
 /* #define HAVE_IPSET */ 
@@ -315,10 +310,6 @@ HAVE_SOCKADDR_SA_LEN
 #undef HAVE_IPV6
 #endif
 
-#ifdef NO_TFTP
-#undef HAVE_TFTP
-#endif
-
 #ifdef NO_DHCP
 #undef HAVE_DHCP
 #undef HAVE_DHCP6
@@ -414,10 +405,6 @@ static char *compile_opts =
 #  endif
      "Lua "
 #endif
-#ifndef HAVE_TFTP
-"no-"
-#endif
-"TFTP "
 #ifndef HAVE_CONNTRACK
 "no-"
 #endif

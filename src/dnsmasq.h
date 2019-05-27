@@ -1483,19 +1483,9 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd);
 void helper_write(void);
 void queue_script(int action, struct dhcp_lease *lease, 
 		  char *hostname, time_t now);
-#ifdef HAVE_TFTP
-void queue_tftp(off_t file_len, char *filename, union mysockaddr *peer);
-#endif
 void queue_arp(int action, unsigned char *mac, int maclen,
 	       int family, struct all_addr *addr);
 int helper_buf_empty(void);
-#endif
-
-/* tftp.c */
-#ifdef HAVE_TFTP
-void tftp_request(struct listener *listen, time_t now);
-void check_tftp_listeners(time_t now);
-int do_tftp_script_run(void);
 #endif
 
 /* conntrack.c */

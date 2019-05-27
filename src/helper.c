@@ -57,9 +57,6 @@ struct script_data
   struct in_addr addr, giaddr;
   unsigned int remaining_time;
   time_t expires;
-#ifdef HAVE_TFTP
-  off_t file_len;
-#endif
 #ifdef HAVE_IPV6
   struct in6_addr addr6;
 #endif
@@ -301,12 +298,6 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 #ifdef HAVE_IPV6
       else
 	inet_ntop(AF_INET6, &data.addr6, daemon->addrbuff, ADDRSTRLEN);
-#endif
-
-#ifdef HAVE_TFTP
-      /* file length */
-      if (data.action == ACTION_TFTP)
-	sprintf(is6 ? daemon->packet : daemon->dhcp_buff, "%lu", (unsigned long)data.file_len);
 #endif
 
 #ifdef HAVE_LUASCRIPT
@@ -787,37 +778,6 @@ void queue_script(int action, struct dhcp_lease *lease, char *hostname, time_t n
     }
   bytes_in_buf = p - (unsigned char *)buf;
 }
-
-#ifdef HAVE_TFTP
-/* This nastily re-uses DHCP-fields for TFTP stuff */
-void queue_tftp(off_t file_len, char *filename, union mysockaddr *peer)
-{
-  unsigned int filename_len;
-
-  /* no script */
-  if (daemon->helperfd == -1)
-    return;
-  
-  filename_len = strlen(filename) + 1;
-  buff_alloc(sizeof(struct script_data) +  filename_len);
-  memset(buf, 0, sizeof(struct script_data));
-
-  buf->action = ACTION_TFTP;
-  buf->hostname_len = filename_len;
-  buf->file_len = file_len;
-
-  if ((buf->flags = peer->sa.sa_family) == AF_INET)
-    buf->addr = peer->in.sin_addr;
-#ifdef HAVE_IPV6
-  else
-    buf->addr6 = peer->in6.sin6_addr;
-#endif
-
-  memcpy((unsigned char *)(buf+1), filename, filename_len);
-  
-  bytes_in_buf = sizeof(struct script_data) +  filename_len;
-}
-#endif
 
 void queue_arp(int action, unsigned char *mac, int maclen, int family, struct all_addr *addr)
 {
