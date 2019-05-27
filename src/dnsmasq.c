@@ -69,6 +69,8 @@ int main (int argc, char **argv)
   textdomain("dnsmasq");
 #endif
 
+  printf("##### start dnsmasq service!! #####\n");
+
   sigact.sa_handler = sig_handler;
   sigact.sa_flags = 0;
   sigemptyset(&sigact.sa_mask);
@@ -241,13 +243,9 @@ int main (int argc, char **argv)
 	die(_("--auth-server required when an auth zone is defined."), NULL, EC_BADCONF);
 
       /* Create a serial at startup if not configured. */
-#ifdef HAVE_BROKEN_RTC
       if (daemon->soa_sn == 0)
-	die(_("zone serial must be configured in --auth-soa"), NULL, EC_BADCONF);
-#else
-      if (daemon->soa_sn == 0)
-	daemon->soa_sn = now;
-#endif
+		daemon->soa_sn = now;
+
     }
   
 #ifdef HAVE_DHCP6

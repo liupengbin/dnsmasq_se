@@ -56,11 +56,7 @@ struct script_data
   int clid_len, hostname_len, ed_len;
   struct in_addr addr, giaddr;
   unsigned int remaining_time;
-#ifdef HAVE_BROKEN_RTC
-  unsigned int length;
-#else
   time_t expires;
-#endif
 #ifdef HAVE_TFTP
   off_t file_len;
 #endif
@@ -378,13 +374,8 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 		  lua_setfield(lua, -2, "interface");
 		}
 	      
-#ifdef HAVE_BROKEN_RTC	
-	      lua_pushnumber(lua, data.length);
-	      lua_setfield(lua, -2, "lease_length");
-#else
 	      lua_pushnumber(lua, data.expires);
 	      lua_setfield(lua, -2, "lease_expires");
-#endif
 	      
 	      if (hostname)
 		{
@@ -565,13 +556,8 @@ int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd)
 	  my_setenv("DNSMASQ_CLIENT_ID", !is6 && data.clid_len != 0 ? daemon->packet : NULL, &err);
 	  my_setenv("DNSMASQ_INTERFACE", strlen(data.interface) != 0 ? data.interface : NULL, &err);
 	  
-#ifdef HAVE_BROKEN_RTC
-	  sprintf(daemon->dhcp_buff2, "%u", data.length);
-	  my_setenv("DNSMASQ_LEASE_LENGTH", daemon->dhcp_buff2, &err);
-#else
 	  sprintf(daemon->dhcp_buff2, "%lu", (unsigned long)data.expires);
 	  my_setenv("DNSMASQ_LEASE_EXPIRES", daemon->dhcp_buff2, &err); 
-#endif
 	  
 	  my_setenv("DNSMASQ_DOMAIN", domain, &err);
 	  
@@ -776,11 +762,7 @@ void queue_script(int action, struct dhcp_lease *lease, char *hostname, time_t n
   if (!indextoname(fd, lease->last_interface, buf->interface))
     buf->interface[0] = 0;
   
-#ifdef HAVE_BROKEN_RTC 
-  buf->length = lease->length;
-#else
   buf->expires = lease->expires;
-#endif
 
   if (lease->expires != 0)
     buf->remaining_time = (unsigned int)difftime(lease->expires, now);

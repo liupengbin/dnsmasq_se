@@ -108,17 +108,9 @@ static int read_leases(time_t now, FILE *leasestream)
 
 	ei = atol(daemon->dhcp_buff3);
 
-#ifdef HAVE_BROKEN_RTC
-	if (ei != 0)
-	  lease->expires = (time_t)ei + now;
-	else
-	  lease->expires = (time_t)0;
-	lease->length = ei;
-#else
 	/* strictly time_t is opaque, but this hack should work on all sane systems,
 	   even when sizeof(time_t) == 8 */
 	lease->expires = (time_t)ei;
-#endif
 	
 	/* set these correctly: the "old" events are generated later from
 	   the startup synthesised SIGHUP. */
@@ -261,11 +253,7 @@ void lease_update_file(time_t now)
 	    continue;
 #endif
 
-#ifdef HAVE_BROKEN_RTC
-	  ourprintf(&err, "%u ", lease->length);
-#else
 	  ourprintf(&err, "%lu ", (unsigned long)lease->expires);
-#endif
 
 	  if (lease->hwaddr_type != ARPHRD_ETHER || lease->hwaddr_len == 0) 
 	    ourprintf(&err, "%.2x-", lease->hwaddr_type);
@@ -305,11 +293,7 @@ void lease_update_file(time_t now)
 	      if (!(lease->flags & (LEASE_TA | LEASE_NA)))
 		continue;
 
-#ifdef HAVE_BROKEN_RTC
-	      ourprintf(&err, "%u ", lease->length);
-#else
 	      ourprintf(&err, "%lu ", (unsigned long)lease->expires);
-#endif
     
 	      inet_ntop(AF_INET6, &lease->addr6, daemon->addrbuff, ADDRSTRLEN);
 	 
@@ -492,10 +476,6 @@ void lease_update_dns(int force)
 
   if (daemon->port != 0 && (dns_dirty || force))
     {
-#ifndef HAVE_BROKEN_RTC
-      /* force transfer to authoritative secondaries */
-      daemon->soa_sn++;
-#endif
       
       cache_unhash_dhcp();
 
@@ -758,9 +738,6 @@ static struct dhcp_lease *lease_allocate(void)
   memset(lease, 0, sizeof(struct dhcp_lease));
   lease->flags = LEASE_NEW;
   lease->expires = 1;
-#ifdef HAVE_BROKEN_RTC
-  lease->length = 0xffffffff; /* illegal value */
-#endif
   lease->hwaddr_len = 256; /* illegal value */
   lease->next = leases;
   leases = lease;
@@ -824,20 +801,8 @@ void lease_set_expires(struct dhcp_lease *lease, unsigned int len, time_t now)
     {
       dns_dirty = 1;
       lease->expires = exp;
-#ifndef HAVE_BROKEN_RTC
-      lease->flags |= LEASE_AUX_CHANGED;
-      file_dirty = 1;
-#endif
     }
   
-#ifdef HAVE_BROKEN_RTC
-  if (len != lease->length)
-    {
-      lease->length = len;
-      lease->flags |= LEASE_AUX_CHANGED;
-      file_dirty = 1; 
-    }
-#endif
 } 
 
 #ifdef HAVE_DHCP6

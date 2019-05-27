@@ -554,14 +554,7 @@ void make_duid(time_t now)
   else
     {
       time_t newnow = 0;
-      
-      /* If we have no persistent lease database, or a non-stable RTC, use DUID_LL (newnow == 0) */
-#ifndef HAVE_BROKEN_RTC
-      /* rebase epoch to 1/1/2000 */
-      if (!option_bool(OPT_LEASE_RO) || daemon->lease_change_command)
-	newnow = now - 946684800;
-#endif      
-      
+            
       iface_enumerate(AF_LOCAL, &newnow, make_duid1);
       
       if(!daemon->duid)

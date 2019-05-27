@@ -60,20 +60,6 @@
 /* compile-time options: uncomment below to enable or do eg.
    make COPTS=-DHAVE_BROKEN_RTC
 
-HAVE_BROKEN_RTC
-   define this on embedded systems which don't have an RTC
-   which keeps time over reboots. Causes dnsmasq to use uptime
-   for timing, and keep lease lengths rather than expiry times
-   in its leases file. This also make dnsmasq "flash disk friendly".
-   Normally, dnsmasq tries very hard to keep the on-disk leases file
-   up-to-date: rewriting it after every renewal.  When HAVE_BROKEN_RTC 
-   is in effect, the lease file is only written when a new lease is 
-   created, or an old one destroyed. (Because those are the only times 
-   it changes.) This vastly reduces the number of file writes, and makes
-   it viable to keep the lease file on a flash filesystem.
-   NOTE: when enabling or disabling this, be sure to delete any old
-   leases file, otherwise dnsmasq may get very confused.
-
 HAVE_TFTP
    define this to get dnsmasq's built-in TFTP server.
 
@@ -158,8 +144,6 @@ RESOLVFILE
 /* Defining this builds a binary which handles time differently and works better on a system without a 
    stable RTC (it uses uptime, not epoch time) and writes the DHCP leases file less often to avoid flash wear. 
 */
-
-/* #define HAVE_BROKEN_RTC */
 
 /* The default set of options to build. Built with these options, dnsmasq
    has no library dependencies other than libc */
@@ -393,9 +377,6 @@ static char *compile_opts =
 "no-"
 #endif
 "GNU-getopt "
-#ifdef HAVE_BROKEN_RTC
-"no-RTC "
-#endif
 #ifdef NO_FORK
 "no-MMU "
 #endif

@@ -712,9 +712,6 @@ struct dhcp_lease {
   char *old_hostname;    /* hostname before it moved to another lease */
   int flags;
   time_t expires;        /* lease expiry */
-#ifdef HAVE_BROKEN_RTC
-  unsigned int length;
-#endif
   int hwaddr_len, hwaddr_type;
   unsigned char hwaddr[DHCP_CHADDR_MAX]; 
   struct in_addr addr, override, giaddr;

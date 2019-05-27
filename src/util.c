@@ -20,10 +20,6 @@
 
 #include "dnsmasq.h"
 
-#ifdef HAVE_BROKEN_RTC
-#include <sys/times.h>
-#endif
-
 #if defined(HAVE_LIBIDN2)
 #include <idn2.h>
 #elif defined(HAVE_IDN)
@@ -406,17 +402,9 @@ int hostname_issubdomain(char *a, char *b)
   
 time_t dnsmasq_time(void)
 {
-#ifdef HAVE_BROKEN_RTC
-  struct tms dummy;
-  static long tps = 0;
 
-  if (tps == 0)
-    tps = sysconf(_SC_CLK_TCK);
-
-  return (time_t)(times(&dummy)/tps);
-#else
   return time(NULL);
-#endif
+
 }
 
 int netmask_length(struct in_addr mask)

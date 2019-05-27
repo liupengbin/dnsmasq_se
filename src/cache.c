@@ -1655,13 +1655,11 @@ void dump_cache(time_t now)
 			 cache->flags & F_NXDOMAIN ? "X" : " ",
 			 cache->flags & F_HOSTS ? "H" : " ",
 			 cache->flags & F_DNSSECOK ? "V" : " ");
-#ifdef HAVE_BROKEN_RTC
-	    p += sprintf(p, "%lu", cache->flags & F_IMMORTAL ? 0: (unsigned long)(cache->ttd - now));
-#else
+
 	    p += sprintf(p, "%s", cache->flags & F_IMMORTAL ? "\n" : ctime(&(cache->ttd)));
 	    /* ctime includes trailing \n - eat it */
 	    *(p-1) = 0;
-#endif
+
 	    my_syslog(LOG_INFO, "%s", daemon->namebuff);
 	  }
     }
