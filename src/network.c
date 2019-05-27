@@ -305,59 +305,6 @@ static int iface_allowed(struct iface_param *param, int if_index, char *label,
     {
       struct interface_name *int_name;
       struct addrlist *al;
-#ifdef HAVE_AUTH
-      struct auth_zone *zone;
-      struct auth_name_list *name;
-
-      /* Find subnets in auth_zones */
-      for (zone = daemon->auth_zones; zone; zone = zone->next)
-	for (name = zone->interface_names; name; name = name->next)
-	  if (wildcard_match(name->name, label))
-	    {
-	      if (addr->sa.sa_family == AF_INET && (name->flags & AUTH4))
-		{
-		  if (param->spare)
-		    {
-		      al = param->spare;
-		      param->spare = al->next;
-		    }
-		  else
-		    al = whine_malloc(sizeof(struct addrlist));
-		  
-		  if (al)
-		    {
-		      al->next = zone->subnet;
-		      zone->subnet = al;
-		      al->prefixlen = prefixlen;
-		      al->addr.addr.addr4 = addr->in.sin_addr;
-		      al->flags = 0;
-		    }
-		}
-	      
-#ifdef HAVE_IPV6
-	      if (addr->sa.sa_family == AF_INET6 && (name->flags & AUTH6))
-		{
-		  if (param->spare)
-		    {
-		      al = param->spare;
-		      param->spare = al->next;
-		    }
-		  else
-		    al = whine_malloc(sizeof(struct addrlist));
-		  
-		  if (al)
-		    {
-		      al->next = zone->subnet;
-		      zone->subnet = al;
-		      al->prefixlen = prefixlen;
-		      al->addr.addr.addr6 = addr->in6.sin6_addr;
-		      al->flags = ADDRLIST_IPV6;
-		    }
-		} 
-#endif
-	      
-	    }
-#endif
        
       /* Update addresses from interface_names. These are a set independent
 	 of the set we're listening on. */  
@@ -531,9 +478,6 @@ int enumerate_interfaces(int reset)
   struct addrlist *addr, *tmp;
   struct interface_name *intname;
   struct irec *iface;
-#ifdef HAVE_AUTH
-  struct auth_zone *zone;
-#endif
 
   /* Do this max once per select cycle  - also inhibits netlink socket use
    in TCP child processes. */
@@ -578,28 +522,6 @@ int enumerate_interfaces(int reset)
     }
   daemon->interface_addrs = NULL;
   
-#ifdef HAVE_AUTH
-  /* remove addresses stored against auth_zone subnets, but not 
-   ones configured as address literals */
-  for (zone = daemon->auth_zones; zone; zone = zone->next)
-    if (zone->interface_names)
-      {
-	struct addrlist **up;
-	for (up = &zone->subnet, addr = zone->subnet; addr; addr = tmp)
-	  {
-	    tmp = addr->next;
-	    if (addr->flags & ADDRLIST_LITERAL)
-	      up = &addr->next;
-	    else
-	      {
-		*up = addr->next;
-		addr->next = spare;
-		spare = addr;
-	      }
-	  }
-      }
-#endif
-
   param.spare = spare;
   
 #ifdef HAVE_IPV6
@@ -1375,33 +1297,6 @@ void check_servers(void)
 	  if (serv->edns_pktsz == 0)
 	    serv->edns_pktsz = daemon->edns_pktsz;
 	  
-#ifdef HAVE_DNSSEC
-	  if (option_bool(OPT_DNSSEC_VALID))
-	    { 
-	      if (!(serv->flags & SERV_FOR_NODOTS))
-		serv->flags |= SERV_DO_DNSSEC;
-	      
-	      /* Disable DNSSEC validation when using server=/domain/.... servers
-		 unless there's a configured trust anchor. */
-	      if (serv->flags & SERV_HAS_DOMAIN)
-		{
-		  struct ds_config *ds;
-		  char *domain = serv->domain;
-		  
-		  /* .example.com is valid */
-		  while (*domain == '.')
-		    domain++;
-		  
-		  for (ds = daemon->ds; ds; ds = ds->next)
-		    if (ds->name[0] != 0 && hostname_isequal(domain, ds->name))
-		      break;
-		  
-		  if (!ds)
-		    serv->flags &= ~SERV_DO_DNSSEC;
-		}
-	    }
-#endif
-
 	  port = prettyprint_addr(&serv->addr, daemon->namebuff);
 	  
 	  /* 0.0.0.0 is nothing, the stack treats it like 127.0.0.1 */
@@ -1446,10 +1341,6 @@ void check_servers(void)
 	  if (serv->flags & (SERV_HAS_DOMAIN | SERV_FOR_NODOTS | SERV_USE_RESOLV))
 	    {
 	      char *s1, *s2, *s3 = "";
-#ifdef HAVE_DNSSEC
-	      if (option_bool(OPT_DNSSEC_VALID) && !(serv->flags & SERV_DO_DNSSEC))
-		s3 = _("(no DNSSEC)");
-#endif
 	      if (!(serv->flags & SERV_HAS_DOMAIN))
 		s1 = _("unqualified"), s2 = _("names");
 	      else if (strlen(serv->domain) == 0)

@@ -667,18 +667,6 @@ static int atoi_check16(char *a, int *res)
   return 1;
 }
 
-#ifdef HAVE_DNSSEC
-static int atoi_check8(char *a, int *res)
-{
-  if (!(atoi_check(a, res)) ||
-      *res < 0 ||
-      *res > 0xff)
-    return 0;
-
-  return 1;
-}
-#endif
-
 #ifndef NO_ID
 static void add_txt(char *name, char *txt, int stat)
 {
@@ -1947,70 +1935,7 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
       }
 
     case LOPT_IPSET: /* --ipset */
-#ifndef HAVE_IPSET
-      ret_err(_("recompile with HAVE_IPSET defined to enable ipset directives"));
       break;
-#else
-      {
-	 struct ipsets ipsets_head;
-	 struct ipsets *ipsets = &ipsets_head;
-	 int size;
-	 char *end;
-	 char **sets, **sets_pos;
-	 memset(ipsets, 0, sizeof(struct ipsets));
-	 unhide_metas(arg);
-	 if (arg && *arg == '/') 
-	   {
-	     arg++;
-	     while ((end = split_chr(arg, '/'))) 
-	       {
-		 char *domain = NULL;
-		 /* elide leading dots - they are implied in the search algorithm */
-		 while (*arg == '.')
-		   arg++;
-		 /* # matches everything and becomes a zero length domain string */
-		 if (strcmp(arg, "#") == 0 || !*arg)
-		   domain = "";
-		 else if (strlen(arg) != 0 && !(domain = canonicalise_opt(arg)))
-		   ret_err(gen_err);
-		 ipsets->next = opt_malloc(sizeof(struct ipsets));
-		 ipsets = ipsets->next;
-		 memset(ipsets, 0, sizeof(struct ipsets));
-		 ipsets->domain = domain;
-		 arg = end;
-	       }
-	   } 
-	 else 
-	   {
-	     ipsets->next = opt_malloc(sizeof(struct ipsets));
-	     ipsets = ipsets->next;
-	     memset(ipsets, 0, sizeof(struct ipsets));
-	     ipsets->domain = "";
-	   }
-	 
-	 if (!arg || !*arg)
-	   ret_err(gen_err);
-	 
-	 for (size = 2, end = arg; *end; ++end) 
-	   if (*end == ',')
-	       ++size;
-     
-	 sets = sets_pos = opt_malloc(sizeof(char *) * size);
-	 
-	 do {
-	   end = split(arg);
-	   *sets_pos++ = opt_string_alloc(arg);
-	   arg = end;
-	 } while (end);
-	 *sets_pos = 0;
-	 for (ipsets = &ipsets_head; ipsets->next; ipsets = ipsets->next)
-	   ipsets->next->sets = sets;
-	 ipsets->next = daemon->ipsets;
-	 daemon->ipsets = ipsets_head.next;
-	 
-	 break;
-      }
-#endif
       
     case 'c':  /* --cache-size */
       {
@@ -2543,75 +2468,6 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
 	daemon->host_records_tail = new;
 	break;
       }
-
-#ifdef HAVE_DNSSEC
-    case LOPT_DNSSEC_STAMP: /* --dnssec-timestamp */
-      daemon->timestamp_file = opt_string_alloc(arg); 
-      break;
-
-    case LOPT_DNSSEC_CHECK: /* --dnssec-check-unsigned */
-      if (arg)
-	{
-	  if (strcmp(arg, "no") == 0)
-	    set_option_bool(OPT_DNSSEC_IGN_NS);
-	  else
-	    ret_err(_("bad value for dnssec-check-unsigned"));
-	}
-      break;
-      
-    case LOPT_TRUST_ANCHOR: /* --trust-anchor */
-      {
-	struct ds_config *new = opt_malloc(sizeof(struct ds_config));
-      	char *cp, *cp1, *keyhex, *digest, *algo = NULL;
-	int len;
-	
-	new->class = C_IN;
-
-	if ((comma = split(arg)) && (algo = split(comma)))
-	  {
-	    int class = 0;
-	    if (strcmp(comma, "IN") == 0)
-	      class = C_IN;
-	    else if (strcmp(comma, "CH") == 0)
-	      class = C_CHAOS;
-	    else if (strcmp(comma, "HS") == 0)
-	      class = C_HESIOD;
-	    
-	    if (class != 0)
-	      {
-		new->class = class;
-		comma = algo;
-		algo = split(comma);
-	      }
-	  }
-		  
-       	if (!comma || !algo || !(digest = split(algo)) || !(keyhex = split(digest)) ||
-	    !atoi_check16(comma, &new->keytag) || 
-	    !atoi_check8(algo, &new->algo) ||
-	    !atoi_check8(digest, &new->digest_type) ||
-	    !(new->name = canonicalise_opt(arg)))
-	  ret_err(_("bad trust anchor"));
-	    
-	/* Upper bound on length */
-	len = (2*strlen(keyhex))+1;
-	new->digest = opt_malloc(len);
-	unhide_metas(keyhex);
-	/* 4034: "Whitespace is allowed within digits" */
-	for (cp = keyhex; *cp; )
-	  if (isspace(*cp))
-	    for (cp1 = cp; *cp1; cp1++)
-	      *cp1 = *(cp1+1);
-	  else
-	    cp++;
-	if ((new->digestlen = parse_hex(keyhex, (unsigned char *)new->digest, len, NULL, NULL)) == -1)
-	  ret_err(_("bad HEX in trust anchor"));
-	
-	new->next = daemon->ds;
-	daemon->ds = new;
-	
-	break;
-      }
-#endif
 		
     default:
       ret_err(_("unsupported option (check that dnsmasq was compiled with DHCP/TFTP/DNSSEC/DBus support)"));
@@ -2988,9 +2844,6 @@ void read_opts(int argc, char **argv, char *compile_opts)
   add_txt("evictions.bind", NULL, TXT_STAT_EVICTIONS);
   add_txt("misses.bind", NULL, TXT_STAT_MISSES);
   add_txt("hits.bind", NULL, TXT_STAT_HITS);
-#ifdef HAVE_AUTH
-  add_txt("auth.bind", NULL, TXT_STAT_AUTH);
-#endif
   add_txt("servers.bind", NULL, TXT_STAT_SERVERS);
 #endif
 

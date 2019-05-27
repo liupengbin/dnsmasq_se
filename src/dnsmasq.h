@@ -148,10 +148,6 @@ extern int capget(cap_user_header_t header, cap_user_data_t data);
 #include <priv.h>
 #endif
 
-#ifdef HAVE_DNSSEC
-#  include <nettle/nettle-meta.h>
-#endif
-
 /* daemon is function in the C library.... */
 #define daemon dnsmasq_daemon
 
@@ -645,11 +641,7 @@ struct hostsfile {
 #define FREC_TEST_PKTSZ       256
 #define FREC_HAS_EXTRADATA    512        
 
-#ifdef HAVE_DNSSEC
-#define HASH_SIZE 20 /* SHA-1 digest size */
-#else
 #define HASH_SIZE sizeof(int)
-#endif
 
 struct frec {
   union mysockaddr source;
@@ -664,13 +656,6 @@ struct frec {
   int log_id, fd, forwardall, flags;
   time_t time;
   unsigned char *hash[HASH_SIZE];
-#ifdef HAVE_DNSSEC 
-  int class, work_counter;
-  struct blockdata *stash; /* Saved reply, whilst we validate */
-  size_t stash_len;
-  struct frec *dependent; /* Query awaiting internally-generated DNSKEY or DS query */
-  struct frec *blocking_query; /* Query which is blocking us. */
-#endif
   struct frec *next;
 };
 
@@ -1034,23 +1019,11 @@ extern struct daemon {
 #ifdef OPTION6_PREFIX_CLASS 
   struct prefix_class *prefix_classes;
 #endif
-#ifdef HAVE_DNSSEC
-  struct ds_config *ds;
-  char *timestamp_file;
-#endif
 
   /* globally used stuff for DNS */
   char *packet; /* packet buffer */
   int packet_buff_sz; /* size of above */
   char *namebuff; /* MAXDNAME size buffer */
-#ifdef HAVE_DNSSEC
-  char *keyname; /* MAXDNAME size buffer */
-  char *workspacename; /* ditto */
-  char *rr_status; /* flags for individual RRs */
-  int rr_status_sz;
-  int dnssec_no_time_check;
-  int back_to_the_future;
-#endif
   struct frec *frec_list;
   struct serverfd *sfds;
   struct irec *interfaces;
@@ -1086,9 +1059,6 @@ extern struct daemon {
   /* DBus stuff */
   /* void * here to avoid depending on dbus headers outside dbus.c */
   void *dbus;
-#ifdef HAVE_DBUS
-  struct watch *watches;
-#endif
 
   /* TFTP stuff */
   struct tftp_transfer *tftp_trans, *tftp_done_trans;
@@ -1133,15 +1103,6 @@ struct crec *cache_enumerate(int init);
 int read_hostsfile(char *filename, unsigned int index, int cache_size, 
 		   struct crec **rhash, int hashsz);
 
-/* blockdata.c */
-#ifdef HAVE_DNSSEC
-void blockdata_init(void);
-void blockdata_report(void);
-struct blockdata *blockdata_alloc(char *data, size_t len);
-void *blockdata_retrieve(struct blockdata *block, size_t len, void *data);
-void blockdata_free(struct blockdata *blocks);
-#endif
-
 /* domain.c */
 char *get_domain(struct in_addr addr);
 #ifdef HAVE_IPV6
@@ -1182,14 +1143,6 @@ int extract_name(struct dns_header *header, size_t plen, unsigned char **pp,
 		 char *name, int isExtract, int extrabytes);
 int in_arpa_name_2_addr(char *namein, struct all_addr *addrp);
 int private_net(struct in_addr addr, int ban_localhost);
-
-/* auth.c */
-#ifdef HAVE_AUTH
-size_t answer_auth(struct dns_header *header, char *limit, size_t qlen, 
-		   time_t now, union mysockaddr *peer_addr, int local_query,
-		   int do_bit, int have_pseudoheader);
-int in_zone(struct auth_zone *zone, char *name, char **cut);
-#endif
 
 /* dnssec.c */
 size_t dnssec_generate_query(struct dns_header *header, unsigned char *end, char *name, int class, int type, int edns_pktsz);
@@ -1342,43 +1295,6 @@ void route_sock(void);
 
 /* bpf.c or netlink.c */
 int iface_enumerate(int family, void *parm, int (callback)());
-
-/* dbus.c */
-#ifdef HAVE_DBUS
-char *dbus_init(void);
-void check_dbus_listeners(void);
-void set_dbus_listeners(void);
-#endif
-
-/* ubus.c */
-#ifdef HAVE_UBUS
-void set_ubus_listeners(void);
-void check_ubus_listeners(void);
-void ubus_event_bcast(const char *type, const char *mac, const char *ip, const char *name, const char *interface);
-#endif
-
-/* ipset.c */
-#ifdef HAVE_IPSET
-void ipset_init(void);
-int add_to_ipset(const char *setname, const struct all_addr *ipaddr, int flags, int remove);
-#endif
-
-/* helper.c */
-#if defined(HAVE_SCRIPT)
-int create_helper(int event_fd, int err_fd, uid_t uid, gid_t gid, long max_fd);
-void helper_write(void);
-void queue_script(int action, struct dhcp_lease *lease, 
-		  char *hostname, time_t now);
-void queue_arp(int action, unsigned char *mac, int maclen,
-	       int family, struct all_addr *addr);
-int helper_buf_empty(void);
-#endif
-
-/* conntrack.c */
-#ifdef HAVE_CONNTRACK
-int get_incoming_mark(union mysockaddr *peer_addr, struct all_addr *local_addr,
-		      int istcp, unsigned int *markp);
-#endif
 
 /* loop.c */
 #ifdef HAVE_LOOP

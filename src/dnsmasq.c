@@ -40,10 +40,6 @@ int main (int argc, char **argv)
   struct iname *if_tmp;
   int piperead, pipefd[2], err_pipe[2];
   struct passwd *ent_pw = NULL;
-#if defined(HAVE_SCRIPT)
-  uid_t script_uid = 0;
-  gid_t script_gid = 0;
-#endif
   struct group *gp = NULL;
   long i, max_fd = sysconf(_SC_OPEN_MAX);
   char *baduser = NULL;
@@ -98,29 +94,7 @@ int main (int argc, char **argv)
   daemon->addrbuff = safe_malloc(ADDRSTRLEN);
   if (option_bool(OPT_EXTRALOG))
     daemon->addrbuff2 = safe_malloc(ADDRSTRLEN);
-  
-#ifdef HAVE_DNSSEC
-  if (option_bool(OPT_DNSSEC_VALID))
-    {
-      /* Note that both /000 and '.' are allowed within labels. These get
-	 represented in presentation format using NAME_ESCAPE as an escape
-	 character when in DNSSEC mode. 
-	 In theory, if all the characters in a name were /000 or
-	 '.' or NAME_ESCAPE then all would have to be escaped, so the 
-	 presentation format would be twice as long as the spec.
-
-	 daemon->namebuff was previously allocated by the option-reading
-	 code before we knew if we're in DNSSEC mode, so reallocate here. */
-      free(daemon->namebuff);
-      daemon->namebuff = safe_malloc(MAXDNAME * 2);
-      daemon->keyname = safe_malloc(MAXDNAME * 2);
-      daemon->workspacename = safe_malloc(MAXDNAME * 2);
-      /* one char flag per possible RR in answer section (may get extended). */
-      daemon->rr_status_sz = 64;
-      daemon->rr_status = safe_malloc(daemon->rr_status_sz);
-    }
-#endif
-  
+    
   /* Close any file descriptors we inherited apart from std{in|out|err} 
      
      Ensure that at least stdin, stdout and stderr (fd 0, 1, 2) exist,
@@ -157,35 +131,6 @@ int main (int argc, char **argv)
   if (daemon->dynamic_dirs)
     die(_("dhcp-hostsdir, dhcp-optsdir and hostsdir are not supported on this platform"), NULL, EC_BADCONF);
 #endif
-  
-  if (option_bool(OPT_DNSSEC_VALID))
-    {
-#ifdef HAVE_DNSSEC
-      struct ds_config *ds;
-
-      /* Must have at least a root trust anchor, or the DNSSEC code
-	 can loop forever. */
-      for (ds = daemon->ds; ds; ds = ds->next)
-	if (ds->name[0] == 0)
-	  break;
-
-      if (!ds)
-	die(_("no root trust anchor provided for DNSSEC"), NULL, EC_BADCONF);
-      
-      if (daemon->cachesize < CACHESIZ)
-	die(_("cannot reduce cache size from default when DNSSEC enabled"), NULL, EC_BADCONF);
-#else 
-      die(_("DNSSEC not available: set HAVE_DNSSEC in src/config.h"), NULL, EC_BADCONF);
-#endif
-    }
-
-#ifdef HAVE_CONNTRACK
-  if (option_bool(OPT_CONNTRACK) && (daemon->query_port != 0 || daemon->osport))
-    die (_("cannot use --conntrack AND --query-port"), NULL, EC_BADCONF); 
-#else
-  if (option_bool(OPT_CONNTRACK))
-    die(_("conntrack support not available: set HAVE_CONNTRACK in src/config.h"), NULL, EC_BADCONF);
-#endif
 
 #ifdef HAVE_SOLARIS_NETWORK
   if (daemon->max_logs != 0)
@@ -197,19 +142,9 @@ int main (int argc, char **argv)
     die(_("asynchronous logging is not available under Android"), NULL, EC_BADCONF);
 #endif
 
-#ifndef HAVE_AUTH
-  if (daemon->auth_zones)
-    die(_("authoritative DNS not available: set HAVE_AUTH in src/config.h"), NULL, EC_BADCONF);
-#endif
-
 #ifndef HAVE_LOOP
   if (option_bool(OPT_LOOP_DETECT))
     die(_("loop detection not available: set HAVE_LOOP in src/config.h"), NULL, EC_BADCONF);
-#endif
-
-#ifndef HAVE_UBUS
-  if (option_bool(OPT_UBUS))
-    die(_("Ubus not available: set HAVE_UBUS in src/config.h"), NULL, EC_BADCONF);
 #endif
   
   if (daemon->max_port < daemon->min_port)
@@ -228,11 +163,6 @@ int main (int argc, char **argv)
 
     }
   
-#ifdef HAVE_IPSET
-  if (daemon->ipsets)
-    ipset_init();
-#endif
-
 #if  defined(HAVE_LINUX_NETWORK)
   netlink_init();
 #elif defined(HAVE_BSD_NETWORK)
@@ -262,9 +192,6 @@ int main (int argc, char **argv)
     {
       cache_init();
 
-#ifdef HAVE_DNSSEC
-      blockdata_init();
-#endif
     }
 
 #ifdef HAVE_INOTIFY
@@ -283,40 +210,9 @@ int main (int argc, char **argv)
 #else
   die(_("Packet dumps not available: set HAVE_DUMP in src/config.h"), NULL, EC_BADCONF);
 #endif
-  
-  if (option_bool(OPT_DBUS))
-#ifdef HAVE_DBUS
-    {
-      char *err;
-      daemon->dbus = NULL;
-      daemon->watches = NULL;
-      if ((err = dbus_init()))
-	die(_("DBus error: %s"), err, EC_MISC);
-    }
-#else
-  die(_("DBus not available: set HAVE_DBUS in src/config.h"), NULL, EC_BADCONF);
-#endif
 
   if (daemon->port != 0)
     pre_allocate_sfds();
-
-#if defined(HAVE_SCRIPT)
-  /* Note getpwnam returns static storage */
-  if ((daemon->dhcp || daemon->dhcp6) && 
-      daemon->scriptuser && 
-      (daemon->lease_change_command || daemon->luascript))
-    {
-      struct passwd *scr_pw;
-      
-      if ((scr_pw = getpwnam(daemon->scriptuser)))
-	{
-	  script_uid = scr_pw->pw_uid;
-	  script_gid = scr_pw->pw_gid;
-	 }
-      else
-	baduser = daemon->scriptuser;
-    }
-#endif
   
   if (daemon->username && !(ent_pw = getpwnam(daemon->username)))
     baduser = daemon->username;
@@ -503,12 +399,7 @@ int main (int argc, char **argv)
    
    /* if we are to run scripts, we need to fork a helper before dropping root. */
   daemon->helperfd = -1;
-#ifdef HAVE_SCRIPT 
-  if ((daemon->dhcp || daemon->dhcp6 || option_bool(OPT_TFTP) || option_bool(OPT_SCRIPT_ARP)) && 
-      (daemon->lease_change_command || daemon->luascript))
-      daemon->helperfd = create_helper(pipewrite, err_pipe[1], script_uid, script_gid, max_fd);
-#endif
-
+   
   if (!option_bool(OPT_DEBUG) && getuid() == 0)   
     {
       int bad_capabilities = 0;
@@ -626,49 +517,6 @@ int main (int argc, char **argv)
   if (chown_warn != 0)
     my_syslog(LOG_WARNING, "chown of PID file %s failed: %s", daemon->runfile, strerror(chown_warn));
   
-#ifdef HAVE_DBUS
-  if (option_bool(OPT_DBUS))
-    {
-      if (daemon->dbus)
-	my_syslog(LOG_INFO, _("DBus support enabled: connected to system bus"));
-      else
-	my_syslog(LOG_INFO, _("DBus support enabled: bus connection pending"));
-    }
-#endif
-
-#ifdef HAVE_DNSSEC
-  if (option_bool(OPT_DNSSEC_VALID))
-    {
-      int rc;
-      struct ds_config *ds;
-      
-      /* Delay creating the timestamp file until here, after we've changed user, so that
-	 it has the correct owner to allow updating the mtime later. 
-	 This means we have to report fatal errors via the pipe. */
-      if ((rc = setup_timestamp()) == -1)
-	{
-	  send_event(err_pipe[1], EVENT_TIME_ERR, errno, daemon->timestamp_file);
-	  _exit(0);
-	}
-      
-      if (option_bool(OPT_DNSSEC_IGN_NS))
-	my_syslog(LOG_INFO, _("DNSSEC validation enabled but all unsigned answers are trusted"));
-      else
-	my_syslog(LOG_INFO, _("DNSSEC validation enabled"));
-      
-      daemon->dnssec_no_time_check = option_bool(OPT_DNSSEC_TIME);
-      if (option_bool(OPT_DNSSEC_TIME) && !daemon->back_to_the_future)
-	my_syslog(LOG_INFO, _("DNSSEC signature timestamps not checked until receipt of SIGINT"));
-      
-      if (rc == 1)
-	my_syslog(LOG_INFO, _("DNSSEC signature timestamps not checked until system time valid"));
-
-      for (ds = daemon->ds; ds; ds = ds->next)
-	my_syslog(LOG_INFO, _("configured with trust anchor for %s keytag %u"),
-		  ds->name[0] == 0 ? "<root>" : ds->name, ds->keytag);
-    }
-#endif
-
   if (log_err != 0)
     my_syslog(LOG_WARNING, _("warning: failed to change owner of %s: %s"), 
 	      daemon->log_file, strerror(log_err));
@@ -734,15 +582,6 @@ int main (int argc, char **argv)
       /* Wake every second whilst waiting for DAD to complete */
       else if (is_dad_listeners())
 	timeout = 1000;
-
-#ifdef HAVE_DBUS
-      set_dbus_listeners();
-#endif
-
-#ifdef HAVE_UBUS
-      if (option_bool(OPT_UBUS))
-	  set_ubus_listeners();
-#endif
 	      
 #ifdef HAVE_INOTIFY
       if (daemon->inotifyfd != -1)
@@ -756,23 +595,6 @@ int main (int argc, char **argv)
 #endif
       
       poll_listen(piperead, POLLIN);
-
-#ifdef HAVE_SCRIPT
-
-      /* Refresh cache */
-      if (option_bool(OPT_SCRIPT_ARP))
-	find_mac(NULL, NULL, 0, now);
-      while (helper_buf_empty() && do_arp_script_run());
-
-      if (!helper_buf_empty())
-	poll_listen(daemon->helperfd, POLLOUT);
-#else
-      /* need this for other side-effects */
-
-      while (do_arp_script_run());
-
-#endif
-
    
       /* must do this just before select(), when we know no
 	 more calls to my_syslog() can occur */
@@ -830,24 +652,6 @@ int main (int argc, char **argv)
       if (poll_check(piperead, POLLIN))
 	async_event(piperead, now);
       
-#ifdef HAVE_DBUS
-      /* if we didn't create a DBus connection, retry now. */ 
-     if (option_bool(OPT_DBUS) && !daemon->dbus)
-	{
-	  char *err;
-	  if ((err = dbus_init()))
-	    my_syslog(LOG_WARNING, _("DBus error: %s"), err);
-	  if (daemon->dbus)
-	    my_syslog(LOG_INFO, _("connected to system DBus"));
-	}
-      check_dbus_listeners();
-#endif
-
-#ifdef HAVE_UBUS
-      if (option_bool(OPT_UBUS))
-        check_ubus_listeners();
-#endif
-
       check_dns_listeners(now);
 
     }
@@ -1078,34 +882,6 @@ static void async_event(int pipe, time_t now)
 		daemon->tcp_pids[i] = 0;
 	break;
 	
-#if defined(HAVE_SCRIPT)	
-      case EVENT_KILLED:
-	my_syslog(LOG_WARNING, _("script process killed by signal %d"), ev.data);
-	break;
-
-      case EVENT_EXITED:
-	my_syslog(LOG_WARNING, _("script process exited with status %d"), ev.data);
-	break;
-
-      case EVENT_EXEC_ERR:
-	my_syslog(LOG_ERR, _("failed to execute %s: %s"), 
-		  daemon->lease_change_command, strerror(ev.data));
-	break;
-
-      case EVENT_SCRIPT_LOG:
-	my_syslog(MS_SCRIPT | LOG_DEBUG, "%s", msg ? msg : "");
-        free(msg);
-	msg = NULL;
-	break;
-
-	/* necessary for fatal errors in helper */
-      case EVENT_USER_ERR:
-      case EVENT_DIE:
-      case EVENT_LUA_ERR:
-	fatal_event(&ev, msg);
-	break;
-#endif
-
       case EVENT_REOPEN:
 	/* Note: this may leave TCP-handling processes with the old file still open.
 	   Since any such process will die in CHILD_LIFETIME or probably much sooner,
@@ -1125,14 +901,6 @@ static void async_event(int pipe, time_t now)
 	break;
 
       case EVENT_TIME:
-#ifdef HAVE_DNSSEC
-	if (daemon->dnssec_no_time_check && option_bool(OPT_DNSSEC_VALID) && option_bool(OPT_DNSSEC_TIME))
-	  {
-	    my_syslog(LOG_INFO, _("now checking DNSSEC signature timestamps"));
-	    daemon->dnssec_no_time_check = 0;
-	    clear_cache_and_reload(now);
-	  }
-#endif
 	break;
 	
       case EVENT_TERM:
@@ -1143,15 +911,6 @@ static void async_event(int pipe, time_t now)
 		
 	if (daemon->lease_stream)
 	  fclose(daemon->lease_stream);
-
-#ifdef HAVE_DNSSEC
-	/* update timestamp file on TERM if time is considered valid */
-	if (daemon->back_to_the_future)
-	  {
-	     if (utimes(daemon->timestamp_file, NULL) == -1)
-		my_syslog(LOG_ERR, _("failed to update mtime on %s: %s"), daemon->timestamp_file, strerror(errno));
-	  }
-#endif
 
 	if (daemon->runfile)
 	  unlink(daemon->runfile);

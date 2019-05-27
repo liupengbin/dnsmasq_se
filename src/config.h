@@ -59,44 +59,7 @@
  
 /* compile-time options: uncomment below to enable or do eg.
    make COPTS=-DHAVE_BROKEN_RTC
-
-HAVE_SCRIPT
-   define this to get the ability to call scripts on lease-change.
-
-HAVE_LUASCRIPT
-   define this to get the ability to call Lua script on lease-change. (implies HAVE_SCRIPT) 
-
-HAVE_DBUS
-   define this if you want to link against libdbus, and have dnsmasq
-   support some methods to allow (re)configuration of the upstream DNS 
-   servers via DBus.
-
-HAVE_UBUS
-   define this if you want to link against libubus
-
-HAVE_IDN
-   define this if you want international domain name 2003 support.
    
-HAVE_LIBIDN2
-   define this if you want international domain name 2008 support.
-
-HAVE_CONNTRACK
-   define this to include code which propagates conntrack marks from
-   incoming DNS queries to the corresponding upstream queries. This adds
-   a build-dependency on libnetfilter_conntrack, but the resulting binary will
-   still run happily on a kernel without conntrack support.
-
-HAVE_IPSET
-    define this to include the ability to selectively add resolved ip addresses
-    to given ipsets.
-
-HAVE_AUTH
-   define this to include the facility to act as an authoritative DNS
-   server for one or more zones.
-
-HAVE_DNSSEC
-   include DNSSEC validator.
-
 HAVE_DUMPFILE
    include code to dump packets to a libpcap-format file for debugging.
 
@@ -138,9 +101,6 @@ RESOLVFILE
 /* The default set of options to build. Built with these options, dnsmasq
    has no library dependencies other than libc */
 
-/* #define HAVE_SCRIPT */
-/* #define HAVE_AUTH */
-/* #define HAVE_IPSET */ 
 /* #define HAVE_LOOP */
 /* #define HAVE_DUMPFILE */
 
@@ -152,11 +112,6 @@ RESOLVFILE
 */
 
 /* #define HAVE_LUASCRIPT */
-/* #define HAVE_DBUS */
-/* #define HAVE_IDN */
-/* #define HAVE_LIBIDN2 */
-/* #define HAVE_CONNTRACK */
-/* #define HAVE_DNSSEC */
 
 
 /* Default locations for important system files. */
@@ -303,21 +258,7 @@ HAVE_SOCKADDR_SA_LEN
 #endif
 
 #if defined(NO_SCRIPT) || defined(NO_FORK)
-#undef HAVE_SCRIPT
 #undef HAVE_LUASCRIPT
-#endif
-
-/* Must HAVE_SCRIPT to HAVE_LUASCRIPT */
-#ifdef HAVE_LUASCRIPT
-#define HAVE_SCRIPT
-#endif
-
-#ifdef NO_AUTH
-#undef HAVE_AUTH
-#endif
-
-#if defined(NO_IPSET)
-#undef HAVE_IPSET
 #endif
 
 #ifdef NO_LOOP
@@ -349,46 +290,10 @@ static char *compile_opts =
 #ifdef NO_FORK
 "no-MMU "
 #endif
-#ifndef HAVE_DBUS
-"no-"
-#endif
-"DBus "
 #ifndef LOCALEDIR
 "no-"
 #endif
 "i18n "
-#if defined(HAVE_LIBIDN2)
-"IDN2 "
-#else
- #if !defined(HAVE_IDN)
-"no-"
- #endif 
-"IDN " 
-#endif
-#if !defined(HAVE_SCRIPT)
-     "no-scripts "
-#else
-#  if !defined(HAVE_LUASCRIPT)
-     "no-"
-#  endif
-     "Lua "
-#endif
-#ifndef HAVE_CONNTRACK
-"no-"
-#endif
-"conntrack "
-#ifndef HAVE_IPSET
-"no-"
-#endif
-"ipset "
-#ifndef HAVE_AUTH
-"no-"
-#endif
-"auth "
-#ifndef HAVE_DNSSEC
-"no-"
-#endif
-"DNSSEC "
 #ifdef NO_ID
 "no-ID "
 #endif

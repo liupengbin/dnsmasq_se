@@ -20,12 +20,6 @@
 
 #include "dnsmasq.h"
 
-#if defined(HAVE_LIBIDN2)
-#include <idn2.h>
-#elif defined(HAVE_IDN)
-#include <idna.h>
-#endif
-
 /* SURF random number generator */
 
 static u32 seed[32];
@@ -134,10 +128,6 @@ static int check_name(char *in)
       else if (isascii((unsigned char)c) && iscntrl((unsigned char)c)) 
 	/* iscntrl only gives expected results for ascii */
 	return 0;
-#if !defined(HAVE_IDN) && !defined(HAVE_LIBIDN2)
-      else if (!isascii((unsigned char)c))
-	return 0;
-#endif
       else if (c != ' ')
 	{
 	  nowhite = 1;
@@ -195,39 +185,7 @@ char *canonicalise(char *in, int *nomem)
   
   if (!(rc = check_name(in)))
     return NULL;
-  
-#if defined(HAVE_LIBIDN2) && (!defined(IDN2_VERSION_NUMBER) || IDN2_VERSION_NUMBER < 0x02000003)
-  /* older libidn2 strips underscores, so don't do IDN processing
-     if the name has an underscore (check_name() returned 2) */
-  if (rc != 2)
-#endif
-#if defined(HAVE_IDN) || defined(HAVE_LIBIDN2)
-    {
-#  ifdef HAVE_LIBIDN2
-      rc = idn2_to_ascii_lz(in, &ret, IDN2_NONTRANSITIONAL);
-      if (rc == IDN2_DISALLOWED)
-	rc = idn2_to_ascii_lz(in, &ret, IDN2_TRANSITIONAL);
-#  else
-      rc = idna_to_ascii_lz(in, &ret, 0);
-#  endif
-      if (rc != IDNA_SUCCESS)
-	{
-	  if (ret)
-	    free(ret);
-	  
-	  if (nomem && (rc == IDNA_MALLOC_ERROR || rc == IDNA_DLOPEN_ERROR))
-	    {
-	      my_syslog(LOG_ERR, _("failed to allocate memory"));
-	      *nomem = 1;
-	    }
-	  
-	  return NULL;
-	}
-      
-      return ret;
-    }
-#endif
-  
+    
   if ((ret = whine_malloc(strlen(in)+1)))
     strcpy(ret, in);
   else if (nomem)
@@ -252,11 +210,6 @@ unsigned char *do_rfc1035_name(unsigned char *p, char *sval, char *limit)
           if (limit && p + 1 > (unsigned char*)limit)
             return NULL;
 
-#ifdef HAVE_DNSSEC
-	  if (option_bool(OPT_DNSSEC_VALID) && *sval == NAME_ESCAPE)
-	    *p++ = (*(++sval))-1;
-	  else
-#endif		
 	    *p++ = *sval;
 	}
       

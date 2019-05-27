@@ -73,11 +73,10 @@ sum!=$(CC) -DDNSMASQ_COMPILE_OPTS $(COPTS) -E $(top)/$(SRC)/dnsmasq.h | ( md5sum
 copts_conf = .copts_$(sum)
 
 objs = cache.o rfc1035.o util.o option.o forward.o network.o \
-       dnsmasq.o netlink.o dbus.o bpf.o \
-       helper.o log.o conntrack.o \
-       auth.o ipset.o \
-       domain.o dnssec.o blockdata.o tables.o loop.o inotify.o \
-       poll.o rrfilter.o edns0.o arp.o crypto.o dump.o ubus.o metrics.o
+       dnsmasq.o netlink.o bpf.o \
+       log.o\
+       domain.o loop.o inotify.o \
+       poll.o rrfilter.o edns0.o arp.o dump.o metrics.o
 
 hdrs = dnsmasq.h config.h dhcp-protocol.h dhcp6-protocol.h \
        dns-protocol.h radv-protocol.h ip6addr.h metrics.h

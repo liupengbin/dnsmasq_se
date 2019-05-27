@@ -193,16 +193,6 @@ static void cache_hash(struct crec *crecp)
   *up = crecp;
 }
 
-#ifdef HAVE_DNSSEC
-static void cache_blockdata_free(struct crec *crecp)
-{
-  if (crecp->flags & F_DNSKEY)
-    blockdata_free(crecp->addr.key.keydata);
-  else if ((crecp->flags & F_DS) && !(crecp->flags & F_NEG))
-    blockdata_free(crecp->addr.ds.keydata);
-}
-#endif
-
 static void cache_free(struct crec *crecp)
 {
   crecp->flags &= ~F_FORWARD;
@@ -225,9 +215,6 @@ static void cache_free(struct crec *crecp)
       crecp->flags &= ~F_BIGNAME;
     }
 
-#ifdef HAVE_DNSSEC
-  cache_blockdata_free(crecp);
-#endif
 }    
 
 /* insert a new cache entry at the head of the list (youngest entry) */
@@ -374,18 +361,6 @@ static struct crec *cache_scan_free(char *name, struct all_addr *addr, time_t no
 		  continue;
 		}
 	      
-#ifdef HAVE_DNSSEC
-	      /* Deletion has to be class-sensitive for DS and DNSKEY */
-	      if ((flags & crecp->flags & (F_DNSKEY | F_DS)) && crecp->uid == addr->addr.dnssec.class)
-		{
-		  if (crecp->flags & F_CONFIG)
-		    return crecp;
-		  *up = crecp->hash_next;
-		  cache_unlink(crecp);
-		  cache_free(crecp);
-		  continue;
-		}
-#endif
 	    }
 
 	  if (is_expired(now, crecp) || is_outdated_cname_pointer(crecp))
@@ -547,13 +522,7 @@ struct crec *cache_insert(char *name, struct all_addr *addr,
       if (freed_all)
 	{
 	  struct all_addr free_addr = new->addr.addr;;
-	  
-#ifdef HAVE_DNSSEC
-	  /* For DNSSEC records, addr holds class. */
-	  if (new->flags & (F_DS | F_DNSKEY))
-	    free_addr.addr.dnssec.class = new->uid;
-#endif
-	  
+	  	  
 	  free_avail = 1; /* Must be free space now. */
 	  cache_scan_free(cache_get_name(new), &free_addr, now, new->flags, NULL, NULL);
 	  daemon->metrics[METRIC_DNS_CACHE_LIVE_FREED]++;
@@ -610,11 +579,6 @@ struct crec *cache_insert(char *name, struct all_addr *addr,
 
   if (addr)
     {
-#ifdef HAVE_DNSSEC
-      if (flags & (F_DS | F_DNSKEY))
-	new->uid = addr->addr.dnssec.class;
-      else
-#endif
 	new->addr.addr = *addr;	
     }
 
@@ -1071,9 +1035,6 @@ void cache_reload(void)
   struct name_list *nl;
   struct cname *a;
   struct interface_name *intr;
-#ifdef HAVE_DNSSEC
-  struct ds_config *ds;
-#endif
 
   daemon->metrics[METRIC_DNS_CACHE_INSERTED] = 0;
   daemon->metrics[METRIC_DNS_CACHE_LIVE_FREED] = 0;
@@ -1081,9 +1042,6 @@ void cache_reload(void)
   for (i=0; i<hash_size; i++)
     for (cache = hash_table[i], up = &hash_table[i]; cache; cache = tmp)
       {
-#ifdef HAVE_DNSSEC
-	cache_blockdata_free(cache);
-#endif
 	tmp = cache->hash_next;
 	if (cache->flags & (F_HOSTS | F_CONFIG))
 	  {
@@ -1121,24 +1079,6 @@ void cache_reload(void)
 	  make_non_terminals(cache);
 	  add_hosts_cname(cache); /* handle chains */
 	}
-
-#ifdef HAVE_DNSSEC
-  for (ds = daemon->ds; ds; ds = ds->next)
-    if ((cache = whine_malloc(SIZEOF_POINTER_CREC)) &&
-	(cache->addr.ds.keydata = blockdata_alloc(ds->digest, ds->digestlen)))
-      {
-	cache->flags = F_FORWARD | F_IMMORTAL | F_DS | F_CONFIG | F_NAMEP;
-	cache->ttd = daemon->local_ttl;
-	cache->name.namep = ds->name;
-	cache->addr.ds.keylen = ds->digestlen;
-	cache->addr.ds.algo = ds->algo;
-	cache->addr.ds.keytag = ds->keytag;
-	cache->addr.ds.digest = ds->digest_type;
-	cache->uid = ds->class;
-	cache_hash(cache);
-	make_non_terminals(cache);
-      }
-#endif
   
   /* borrow the packet buffer for a temporary by-address hash */
   memset(daemon->packet, 0, daemon->packet_buff_sz);
@@ -1301,12 +1241,6 @@ int cache_make_stat(struct txt_record *t)
       sprintf(buff+1, "%u", daemon->metrics[METRIC_DNS_LOCAL_ANSWERED]);
       break;
 
-#ifdef HAVE_AUTH
-    case TXT_STAT_AUTH:
-      sprintf(buff+1, "%u", daemon->metrics[METRIC_DNS_AUTH_ANSWERED]);
-      break;
-#endif
-
     case TXT_STAT_SERVERS:
       /* sum counts from different records for same server */
       for (serv = daemon->servers; serv; serv = serv->next)
@@ -1386,12 +1320,6 @@ void dump_cache(time_t now)
 	    daemon->cachesize, daemon->metrics[METRIC_DNS_CACHE_LIVE_FREED], daemon->metrics[METRIC_DNS_CACHE_INSERTED]);
   my_syslog(LOG_INFO, _("queries forwarded %u, queries answered locally %u"), 
 	    daemon->metrics[METRIC_DNS_QUERIES_FORWARDED], daemon->metrics[METRIC_DNS_LOCAL_ANSWERED]);
-#ifdef HAVE_AUTH
-  my_syslog(LOG_INFO, _("queries for authoritative zones %u"), daemon->metrics[METRIC_DNS_AUTH_ANSWERED]);
-#endif
-#ifdef HAVE_DNSSEC
-  blockdata_report();
-#endif
 
   /* sum counts from different records for same server */
   for (serv = daemon->servers; serv; serv = serv->next)
@@ -1433,17 +1361,6 @@ void dump_cache(time_t now)
 	    p += sprintf(p, "%-30.30s ", sanitise(n));
 	    if ((cache->flags & F_CNAME) && !is_outdated_cname_pointer(cache))
 	      a = sanitise(cache_get_cname_target(cache));
-#ifdef HAVE_DNSSEC
-	    else if (cache->flags & F_DS)
-	      {
-		if (!(cache->flags & F_NEG))
-		  sprintf(a, "%5u %3u %3u", cache->addr.ds.keytag,
-			  cache->addr.ds.algo, cache->addr.ds.digest);
-	      }
-	    else if (cache->flags & F_DNSKEY)
-	      sprintf(a, "%5u %3u %3u", cache->addr.key.keytag,
-		      cache->addr.key.algo, cache->addr.key.flags);
-#endif
 	    else if (!(cache->flags & F_NEG) || !(cache->flags & F_FORWARD))
 	      { 
 		a = daemon->addrbuff;
@@ -1461,12 +1378,6 @@ void dump_cache(time_t now)
 	      t = "6";
 	    else if (cache->flags & F_CNAME)
 	      t = "C";
-#ifdef HAVE_DNSSEC
-	    else if (cache->flags & F_DS)
-	      t = "S";
-	    else if (cache->flags & F_DNSKEY)
-	      t = "K";
-#endif
 	    p += sprintf(p, "%-40.40s %s%s%s%s%s%s%s%s%s  ", a, t,
 			 cache->flags & F_FORWARD ? "F" : " ",
 			 cache->flags & F_REVERSE ? "R" : " ",

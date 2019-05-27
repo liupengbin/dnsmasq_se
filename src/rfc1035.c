@@ -89,19 +89,6 @@ int extract_name(struct dns_header *header, size_t plen, unsigned char **pp,
 	    if (isExtract)
 	      {
 		unsigned char c = *p;
-#ifdef HAVE_DNSSEC
-		if (option_bool(OPT_DNSSEC_VALID))
-		  {
-		    if (c == 0 || c == '.' || c == NAME_ESCAPE)
-		      {
-			*cp++ = NAME_ESCAPE;
-			*cp++ = c+1;
-		      }
-		    else
-		      *cp++ = c; 
-		  }
-		else
-#endif
 		if (c != 0 && c != '.')
 		  *cp++ = c;
 		else
@@ -118,10 +105,6 @@ int extract_name(struct dns_header *header, size_t plen, unsigned char **pp,
 		    cp++;
 		    if (c1 >= 'A' && c1 <= 'Z')
 		      c1 += 'a' - 'A';
-#ifdef HAVE_DNSSEC
-		    if (option_bool(OPT_DNSSEC_VALID) && c1 == NAME_ESCAPE)
-		      c1 = (*cp++)-1;
-#endif
 		    
 		    if (c2 >= 'A' && c2 <= 'Z')
 		      c2 += 'a' - 'A';
@@ -341,7 +324,6 @@ unsigned char *skip_section(unsigned char *ansp, int count, struct dns_header *h
    than CRC the raw bytes, since replies might be compressed differently. 
    We ignore case in the names for the same reason. Return all-ones
    if there is not question section. */
-#ifndef HAVE_DNSSEC
 unsigned int questions_crc(struct dns_header *header, size_t plen, char *name)
 {
   int q;
@@ -382,7 +364,7 @@ unsigned int questions_crc(struct dns_header *header, size_t plen, char *name)
 
   return crc;
 }
-#endif
+
 
 size_t resize_packet(struct dns_header *header, size_t plen, unsigned char *pheader, size_t hlen)
 {
@@ -591,11 +573,7 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
   int i, j, qtype, qclass, aqtype, aqclass, ardlen, res, searched_soa = 0;
   unsigned long ttl = 0;
   struct all_addr addr;
-#ifdef HAVE_IPSET
-  char **ipsets_cur;
-#else
   (void)ipsets; /* unused */
-#endif
 
   
   cache_start_insert();
@@ -610,12 +588,6 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 	{
 	  if (secure)
 	    return 0;
-#ifdef HAVE_DNSSEC
-	  if (option_bool(OPT_DNSSEC_VALID))
-	    for (i = 0; i < ntohs(header->ancount); i++)
-	      if (daemon->rr_status[i])
-		return 0;
-#endif
 	}
     }
   
@@ -627,9 +599,6 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
       int found = 0, cname_count = CNAME_CHAIN;
       struct crec *cpp = NULL;
       int flags = RCODE(header) == NXDOMAIN ? F_NXDOMAIN : 0;
-#ifdef HAVE_DNSSEC
-      int cname_short = 0;
-#endif
       unsigned long cttl = ULONG_MAX, attl;
 
       namep = p;
@@ -685,24 +654,11 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 		    {
 		      if (!extract_name(header, qlen, &p1, name, 1, 0))
 			return 0;
-#ifdef HAVE_DNSSEC
-		      if (option_bool(OPT_DNSSEC_VALID) && daemon->rr_status[j])
-			{
-			  /* validated RR anywhere in CNAME chain, don't cache. */
-			  if (cname_short || aqtype == T_CNAME)
-			    return 0;
-
-			  secflag = F_DNSSECOK;
-			}
-#endif
 
 		      if (aqtype == T_CNAME)
 			{
 			  if (!cname_count--)
 			    return 0; /* looped CNAMES, we can't cache. */
-#ifdef HAVE_DNSSEC
-			  cname_short = 1;
-#endif
 			  goto cname_loop;
 			}
 		      
@@ -772,10 +728,6 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 	      
 	      if (aqclass == C_IN && res != 2 && (aqtype == T_CNAME || aqtype == qtype))
 		{
-#ifdef HAVE_DNSSEC
-		  if (option_bool(OPT_DNSSEC_VALID) && daemon->rr_status[j])
-		      secflag = F_DNSSECOK;
-#endif		  
 		  if (aqtype == T_CNAME)
 		    {
 		      if (!cname_count--)
@@ -829,19 +781,7 @@ int extract_addresses(struct dns_header *header, size_t qlen, char *name, time_t
 			    }
 #endif
 			}
-		      
-#ifdef HAVE_IPSET
-		      if (ipsets && (flags & (F_IPV4 | F_IPV6)))
-			{
-			  ipsets_cur = ipsets;
-			  while (*ipsets_cur)
-			    {
-			      log_query((flags & (F_IPV4 | F_IPV6)) | F_IPSET, name, &addr, *ipsets_cur);
-			      add_to_ipset(*ipsets_cur++, &addr, flags, 0);
-			    }
-			}
-#endif
-		      
+		      		      
 		      newc = cache_insert(name, &addr, now, attl, flags | F_FORWARD | secflag);
 		      if (newc && cpp)
 			{
